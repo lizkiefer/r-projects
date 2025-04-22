@@ -1,0 +1,43 @@
+---
+title: "DA5020 Working with Data Frames and Vectors"
+author: "Kiefer, Liz"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: Statistical Analysis of the Characteristics of White Wines
+---
+
+
+```{r q1_loadcsv,echo=FALSE, warning=FALSE}
+df.w <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv", stringsAsFactors = FALSE, header = T)
+```
+
+## Analysis of Wine 
+```{r q2_Text,echo=FALSE, warning=FALSE}
+total_Wines <- nrow(df.w)
+alcohol_Limit <- 12
+alcohol_Content <- length(df.w$alcohol[df.w$alcohol > alcohol_Limit])
+alcohol_ContMax <- max(df.w$alcohol)
+quality_Limit <- 6
+alcohol_Quality <- length(df.w$alcohol[df.w$alcohol > alcohol_Limit & df.w$quality < quality_Limit])
+```
+The data analyzed consist of various attributes of `r total_Wines` wines. There are `r alcohol_Content` wines with an alcohol content above `r alcohol_Limit`%. The highest alcohol content of any wine is `r alcohol_ContMax`. `r alcohol_Quality` wines have an alcohol content above `r alcohol_Limit`% and a quality rating below `r quality_Limit`.
+
+We define *"Swill Index"* as the ratio of alcohol divided by quality and multiplied by the residual sugar content. The five wines with the largest swill index are listed below:
+
+
+```{r q2_Table,echo=FALSE, warning=FALSE}
+
+table_Df <- df.w[,c("residual.sugar","alcohol", "quality")]
+table_Df$swill <- round((df.w$alcohol * df.w$residual.sugar / df.w$quality), 1)
+largest_Swillnumbers <- table_Df[order(table_Df$swill), ][1:5, ]
+data.frame(largest_Swillnumbers)
+
+
+
+
+
+
+
+```
