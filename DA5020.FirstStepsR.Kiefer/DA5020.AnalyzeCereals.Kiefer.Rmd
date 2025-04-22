@@ -1,0 +1,25 @@
+---
+title: "DA5020 Assignment 01.2 / Analyze Cereal Data"
+author: "Kiefer, Liz"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Question 2
+```{r Q2_LoadCSV,echo=FALSE, warning=FALSE}
+df.cereals <- read.csv("http://artificium.us/datasets/CerealData.csv", header=TRUE, stringsAsFactors = FALSE) 
+```
+
+## Question 3
+```{r Q3_PrintCalories,echo=FALSE, warning=FALSE}
+cat('The data in the file “CerealData.csv” contains', nrow(df.cereals), 'rows.',' The average amount of calories in the cereal is',round(mean(df.cereals$Calories)),'kcal.','There are', nrow(df.cereals[df.cereals$Calories>120,]),'cereals with more than 120 calories.')
+```
+
+## Question 4
+```{r Q4_PrintCerealNames,echo=FALSE, warning=FALSE}
+names_Calories <- df.cereals$Cereal.Name[df.cereals$Calories > 120]
+print(names_Calories)
+```
+
