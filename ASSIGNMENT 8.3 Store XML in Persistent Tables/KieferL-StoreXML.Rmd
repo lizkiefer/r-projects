@@ -1,0 +1,124 @@
+---
+title: "Store XML in Persistent Tables"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r Q2_Dataconn, echo=TRUE, warning=FALSE}
+library(XML)
+library(RSQLite)
+xmlURI <- "http://artificium.us/assignments/80.xml/a-80-305/gen-xml/data/restaurantSales.xml"
+xmlDOM <- xmlParse(xmlURI, validate = F)
+```
+
+```{r Q3_Create_SQL_Database, echo=TRUE, warning=FALSE}
+db <- "KieferL-XML-Data-DB.sqlitedb"
+db_Conn <- dbConnect(SQLite(), db)
+```
+
+```{r Q4_Create_Tables, echo=TRUE, warning=FALSE}
+# Clear any existing data
+dbExecute(db_Conn, "DROP TABLE IF EXISTS restaurants")
+dbExecute(db_Conn, "DROP TABLE IF EXISTS visit")
+
+# Setup restaurants and visit tables
+dbExecute(db_Conn, "create table if not exists restaurants (rid integer primary key, rname text not null, rcity text not null default '', rcountry text not null);")
+dbExecute(db_Conn, "create table if not exists visit (vid integer primary key, rid integer, vdate date not null, vamount numeric not null, vtype text check(vtype in ('dine-in', 'take-out')), wine text check(wine in ('T', 'F')), cc text check(cc in ('mastercard', 'amex', 'visa')), amount numeric not null, foreign key(rid) references restaurants(rid));")
+```
+
+```{r Q5_Parsin_XML, echo=TRUE, warning=FALSE}
+# Function for determining if a restaurant is already in the restaurant table based on name and country
+# Returns true or false
+restaurant_Added <- function(name, country, db_Conn) {
+  query <- "select count(*) from restaurants where rname = ? AND rcountry = ?"
+  result <- dbGetQuery(db_Conn, query, params = list(name, country))
+  return(result[1, 1] > 0)
+}
+
+xmlObj <- xmlParse(xmlURI)
+
+# Loop through all transactions to find unique restaurants
+txnList <- xpathSApply(xmlObj, "//txns/*")
+currentRID <- 1
+for (i in 1:length(txnList)) {
+  rname <- xmlValue(txnList[[i]][["restaurant"]][["name"]])
+  rcity <- xmlValue(txnList[[i]][["restaurant"]][["city"]])
+  rcountry <- xmlValue(txnList[[i]][["restaurant"]][["country"]])
+  
+  if (!restaurant_Added(rname, rcountry, db_Conn)){
+    query <- "INSERT INTO restaurants (rid, rname, rcity, rcountry) VALUES (?, ?, ?, ?)"
+    dbExecute(db_Conn, query, params = list(currentRID, rname, rcity, rcountry))
+    currentRID <- currentRID + 1
+  }
+}
+
+# print(dbGetQuery(db_Conn, "SELECT * FROM restaurants LIMIT 5"))
+```
+
+
+
+```{r Q6_Adding_Visit_Info, echo=TRUE, warning=FALSE}
+currentVID <- 1
+for (i in 1:length(txnList)) {
+  # Get all needed attributes of the transaction
+  rname <- xmlValue(txnList[[i]][["restaurant"]][["name"]])
+  
+  # Date is a string combo of year, month, and day
+  vdate <- paste(xmlValue(txnList[[i]][["visit"]][["date"]][["year"]]), xmlValue(txnList[[i]][["visit"]][["date"]][["month"]]), xmlValue(txnList[[i]][["visit"]][["date"]][["day"]]), sep = "-")
+  amount <- as.numeric(xmlValue(txnList[[i]][["payment"]][["amount"]]))
+  tipAmount <- as.numeric(xmlValue(txnList[[i]][["payment"]][["tip"]]))
+  vtype <- xmlAttrs(txnList[[i]][["visit"]])[["type"]]
+  
+  if (is.null(txnList[[i]][["visit"]][["orderedWine"]])) {
+    vwine <- "F"
+  }
+  else {
+    vwine <- "T"
+  }
+  
+  if (xmlAttrs(txnList[[i]][["payment"]])[["type"]] == "CC") {
+    vcheck <- xmlAttrs(txnList[[i]][["payment"]][["cc"]])[["card"]]
+  }
+  else {
+    vcheck <- NULL
+  }
+  
+  rid <- dbGetQuery(db_Conn, "select rid from restaurants where rname = ?", params = rname)[1, 1]
+  
+  # Leave vcheck as the default if the payment type was cash
+  if (!is.null(vcheck)) {
+    query <- "INSERT INTO visit (vid, rid, vdate, vamount, vtype, wine, cc, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    dbExecute(db_Conn, query, params = list(currentVID, rid, vdate, amount + tipAmount, vtype, vwine, vcheck, amount))
+  }
+  else {
+    query <- "INSERT INTO visit (vid, rid, vdate, vamount, vtype, wine, amount) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    dbExecute(db_Conn, query, params = list(currentVID, rid, vdate, amount + tipAmount, vtype, vwine, amount))
+  }
+  currentVID <- currentVID + 1
+}
+
+#print(dbGetQuery(db_Conn, "SELECT * FROM visit LIMIT 50"))
+```
+
+```{r Q7_Table_of_both, echo=TRUE, warning=FALSE}
+# Get total visits for all restaurants, filtered to 2023
+q_Seven <-"select r.rname as restaurant, 
+         r.rcity as city, 
+         count(v.vid) as total_visits, 
+         sum(v.vamount) as total_spent
+  from restaurants r
+  join visit v on r.rid = v.rid
+    where strftime('%Y', v.vdate) = '2023' 
+    group by r.rname, r.rcity;
+"
+table_2023 <- dbGetQuery(db_Conn, q_Seven)
+
+library(knitr)
+library(kableExtra)
+
+kable(table_2023, format = "html", caption = "Visits to restaurants in 2023") %>%
+  kable_styling(bootstrap_options = c("striped")) 
+```

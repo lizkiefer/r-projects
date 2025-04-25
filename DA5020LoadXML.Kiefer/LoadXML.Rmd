@@ -1,0 +1,73 @@
+---
+title: "DA5020 Load XML"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, q4_Dataframe_Creation, echo=FALSE, warning=FALSE}
+library(XML)
+library(RCurl)
+
+url <- "https://s3.us-east-2.amazonaws.com/artificium.us/datasets/Stocks-Txns.RevF-simple.xml"
+xml_content <- getURL(url)
+xml_data <- xmlParse(xml_content)
+df.txns <- xmlToDataFrame(xml_data)
+
+df.txns$type <- c()
+df.txns$exchange <- c()
+tx_rows <- getNodeSet(xml_data, "//transaction")
+for (i in 1:length(tx_rows)) {
+  df.txns$type[i] <- xmlAttrs(tx_rows[[i]])["type"]
+  df.txns$exchange[i] <- xmlAttrs(tx_rows[[i]])["exchange"]
+}
+```
+
+```{r, q5_Total_Vals, echo=FALSE, warning=FALSE}
+total_Val <- 0
+df.txns$costbasis <- as.numeric(as.character(df.txns$costbasis))
+df.txns$qty <- as.numeric(as.character(df.txns$qty))
+df.txns$product <- df.txns$costbasis * df.txns$qty
+
+for (i in 1:nrow(df.txns)) {
+  if (df.txns$type[i] == "buy") {
+    total_Val = total_Val + df.txns$product[i]
+  }
+  else {
+    total_Val = total_Val - df.txns$product[i]
+  }
+}
+str_Char <- as.character(total_Val)
+```
+The total value of the portfolio is $ `r str_Char`
+
+
+```{r, q6_Trimmed_Mean, echo=FALSE, warning=FALSE}
+library(dplyr, warn.conflicts = FALSE)
+nyse_Mean <- df.txns %>%
+  filter(type == "sell", exchange == "nyse") %>%
+  pull(product)
+trimmed_Mean <- mean(nyse_Mean, trim = 0.10)
+```
+The 10% trimmed mean of the sales price of all stocks sold on the NYSE exchange are `r trimmed_Mean`
+
+
+
+
+```{r, q7_Display_STOCKsymbol_ZULX, echo=FALSE, warning=FALSE}
+stock_Zulx <- "ZULX"
+zulx_Price <- 0
+for (i in 1:nrow(df.txns)) {
+  if (df.txns$cusip[i] == stock_Zulx) {
+    zulx_Price = df.txns$costbasis[i]
+  }
+}
+
+rounded_Zulx <- round(zulx_Price, 2)
+name <- "Zurlix"
+capital <- "(ZULX)"
+money_Sign <- "$"
+```
+The price of `r name` `r capital` is `r money_Sign` `r rounded_Zulx`. 

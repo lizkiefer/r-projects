@@ -1,0 +1,114 @@
+---
+title: "Extract XML into Tabular Structure"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+```{r q2_Loading_XML, echo=FALSE, warning=FALSE}
+library(XML)
+library(RCurl)
+
+xmlURL <-"http://s3.us-east-2.amazonaws.com/artificium.us/datasets/LearningAssets-v3.xml"
+#xmlObjTree <- xmlParse(xmlURL, useInternalNodes = TRUE, validate=FALSE)
+```
+
+
+## Analysis of Learning Assets
+
+```{r q3_Number_of_items, echo=FALSE, warning=FALSE}
+xmlObj <- xmlParse(xmlURL)
+root <- xmlRoot(xmlObj)
+
+number_Units <- root[["Units"]] 
+num_Units <- if (!is.null(number_Units)) xmlSize(number_Units) else 0
+
+number_Authors <- root[["Authors"]]
+num_Authors <- if (!is.null(number_Authors)) xmlSize(number_Authors) else 0
+
+number_Slides <- root[["LearningAssets"]]["SlideDeck"]
+num_Slides <- if (!is.null(number_Slides)) xmlSize(number_Slides) else 0
+
+number_Videos <- root[["LearningAssets"]]["Video"]
+num_Videos <- if (!is.null(number_Videos)) xmlSize(number_Videos) else 0
+
+unit_S <- ifelse(num_Units == 1, "unit", "units")
+author_S <- ifelse(num_Authors == 1, "author", "authors")
+slide_S <- ifelse(num_Slides == 1, "slide deck", "slide decks")
+video_S <- ifelse(num_Videos == 1, "video", "videos")
+```
+
+The repository contains `r num_Units` `r unit_S` written by a cadre of `r num_Authors` `r author_S` who produced  `r num_Slides` `r slide_S` and `r num_Videos` `r video_S`.
+
+
+## Table of Learning Assets
+
+```{r q4_Table _of_Learning_Assets, echo=FALSE, warning=FALSE}
+asset_ids = c()
+asset_types = c()
+asset_titles = c()
+asset_lessons = c()
+
+assetList <- xpathSApply(xmlObj, "//LearningAssets/*")
+unitList <- xpathSApply(xmlObj, "//Units/Unit")
+
+# Loop through all assets
+for (i in 1:length(assetList)) {
+  # Get Asset ID
+  asset_id <- xmlAttrs(assetList[[i]])[["assetID"]]
+  asset_ids[i] <- asset_id
+  
+  # Get Asset Type
+  asset_types[i] <- xmlName(assetList[[i]])
+  
+  # Get Asset Title
+  asset_titles[i] <- xmlValue(assetList[[i]][["title"]])
+  
+  # Get Asset's associated lessons
+  asset_units <- c()
+  # Loop through all lessons
+  for (j in 1:length(unitList)) {
+    unitAssetList <- unitList[[j]]["asset"]
+    # Loop through assets for that lesson
+    for (k in 1:length(unitAssetList)) {
+      if (xmlAttrs(unitAssetList[[k]])[["assetID"]] == asset_id)
+      {
+        asset_units[length(asset_units) + 1] <- xmlValue(unitList[[j]][["title"]])
+      }
+    }
+  }
+  
+  if (length(asset_units) == 0) {
+    asset_lessons[i] <- "N/A"
+  }
+  else {
+    asset_lessons[i] <- paste(asset_units, collapse = ', ')
+  }
+}
+
+df.assets <- data.frame(asset_id = asset_ids, type = asset_types, title = asset_titles, lesson = asset_lessons)
+
+```
+
+```{r q5_KableExtra_Table _of_Learning_Assets, echo=FALSE, warning=FALSE}
+
+library(kableExtra)
+
+df.assets <- data.frame(
+  "Assets IDs" = asset_ids, 
+  "Asset Type" = asset_types, 
+  "Asset Title" = asset_titles, 
+  "Asset Lesson" = asset_lessons, 
+   check.names = FALSE
+)
+
+df.assets %>%
+  kbl(caption = "") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE) %>%
+  column_spec(1, bold = TRUE, color = "white", background = "#800080") %>%
+  column_spec(2, bold = TRUE, background = "#F3E5F5") %>%
+  column_spec(3, width = "30em") %>%
+  column_spec(4, width = "15em")
+```

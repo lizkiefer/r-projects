@@ -1,0 +1,116 @@
+---
+title: "Explore Obesity Data"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Assignment 04.1
+---
+
+```{r q2_loading_CSV_files,  echo=FALSE, warning=FALSE}
+library(dplyr, warn.conflicts = FALSE)
+df.full <- read.csv(file = "http://artificium.us/datasets/ObesityPredictionData-Modified.csv")
+```
+
+```{r q3_new_df, echo=FALSE, warning=FALSE}
+#Create dataframe as a subset of full dataframe
+df.clean <- df.full  %>%  select(Gender, Age, Height, Weight, family_history,FAVC, FCVC, NCP, CAEC, SMOKE, MTRANS, Obesity)
+```
+
+```{r q4_tenpercent_trimmed_mean, echo=FALSE, warning=FALSE}
+#Calculate mean of heights by gender
+height_Mean <- tibble(df.clean %>% group_by(Gender) %>% summarize(mHeight = mean(Height, trim = 0.1, na.rm = TRUE)))
+
+#Replace all missing height values with gender appropriate means
+df.clean <- df.clean %>% left_join(height_Mean, by = "Gender") %>% mutate(Height = case_when(is.na(Height) ~ mHeight, TRUE ~ Height)) %>% select(-mHeight)
+```
+
+```{r q5_tenpercent_median, echo=FALSE, warning=FALSE}
+#Calculate mean of ages by gender
+age_Median <- tibble(df.clean %>% group_by(Gender) %>% summarize(mAge = median(Age, na.rm = TRUE)))
+
+#Replace all missing age values with gender appropriate means
+df.clean <- df.clean %>% left_join(age_Median, by = "Gender") %>% mutate(Age = case_when(is.na(Age) ~ mAge, TRUE ~ Age)) %>% select(-mAge)
+```
+
+```{r q6_remove_outliers, echo=FALSE, warning=FALSE}
+m.Weight <- mean(df.clean$Weight, na.rm = TRUE)
+sd.Weight <- sd(df.clean$Weight, na.rm = TRUE)
+
+#Removes outlier based on 2.5 stdevs of BMI
+df.clean <- df.clean %>%
+  filter(abs((Weight - m.Weight)/ sd.Weight) < 2.5)
+
+```
+
+```{r q7_BMI, echo=FALSE, warning=FALSE}
+df.clean <- df.clean %>% mutate(BMI = Weight / (Height ^ 2))
+```
+
+```{r q8_Random_Num_Gen, echo=FALSE, warning=FALSE}
+set.seed(44376)
+df.partial <- df.clean %>% slice_sample(prop = 0.4) 
+```
+
+Below I compare a full data set of Heights vs Frequency and a partial data set of  Heights vs Frequency. I created the two histograms below to illustrate the shape of both data sets.
+
+```{r q9_Hist_CleanFullSet, echo=FALSE, warning=FALSE}
+#Set up histogram to visually understand the full data set's shape
+fullmean_sd <- df.clean %>% summarise(Mean = mean(Height, na.rm = TRUE), StandDev = sd(Height, na.rm = TRUE), N = nrow(df.clean), Margin = qt(0.975, df = N-1)*(StandDev/sqrt(N)), Upper_ConInt = Mean + Margin, Lower_ConInt = Mean - Margin)
+
+hist.data <- hist(df.clean$Height, col = "blue", main = "Full Data Height Distribution", xlab = "Height", ylab = "Frequency")
+
+x_values <- seq(min(df.clean$Height), max(df.clean$Height), length = 150)
+y_values <- dnorm(x_values, mean = mean(df.clean$Height), sd = sd(df.clean$Height)) 
+y_values <- y_values * diff(hist.data$mids[1:2]) * length(df.clean$Height) 
+lines(x_values, y_values, lwd = 2, col="red", lty="dashed")
+```
+
+```{r q9_Hist_CleanPartialSet, echo=FALSE, warning=FALSE}
+# Set up histogram to visually understand the partial data set's shape
+partialmean_sd <- df.partial %>% summarise(Mean = mean(Height, na.rm = TRUE), StandDev = sd(Height, na.rm = TRUE), N = nrow(df.partial), Margin = qt(0.975, df = N-1)*(StandDev/sqrt(N)), Upper_ConInt = Mean + Margin, Lower_ConInt = Mean - Margin)
+
+hist.data <- hist(df.partial$Height, col = "red", main = "Partial Data Height Distribution", xlab = "Height", ylab = "Frequency")
+
+x_values <- seq(min(df.partial$Height), max(df.partial$Height), length = 150)
+y_values <- dnorm(x_values, mean = mean(df.partial$Height), sd = sd(df.partial$Height)) 
+y_values <- y_values * diff(hist.data$mids[1:2]) * length(df.partial$Height) 
+lines(x_values, y_values, lwd = 2, col="blue", lty="dashed")
+
+```
+
+
+We have a full data set that we removed the BMI outliers from. From this data set we created a partial data set that has forty percent of the data from our full data set. From our histograms above we can see both of our Height vs Frequency histograms follow a normal distribution because the histograms are bell shaped. 
+
+The mean of our Height vs Frequency from our Full data set is `r round(fullmean_sd$Mean, 4)` and the standard deviation is `r round(fullmean_sd$StandDev, 4)`. The mean for our Full data set is `r round(partialmean_sd$Mean, 4)` and the standard deviation is `r round(partialmean_sd$StandDev, 4)`. Since on step six we removed the outliers by weight, I think this may have caused our data to not have extreme outliers, and the random sampling mean being similar to our full set mean, tells us that the partial data is representative of full data. 
+
+Since the means and standard deviation are similar, I ran a t.test because a t.test will compare the means of the two height data sets and determine if there is a statistically significant difference between the two. 
+
+```{r q9_tests, echo=FALSE, warning=FALSE}
+t_result <- t.test(df.clean$Height, df.partial$Height)
+v_test <- var.test(df.clean$Height, df.partial$Height)
+```
+
+Here is the result of my t-test: My p-value is `r t_result$p.value`, which is above 0.05. This means there is no statistically significant difference between the means of our partial and full data sets. This leads me to believe that the data sets are similar even when the partial is selected at random, and that the partial data set represents the full data set accurately. I also ran a variance test `r v_test$p.value` my p-value for the variance was also above 0.5. Which means the variances are very similar too and I there are no significant differences between the two data sets. 
+
+We have investigated a total of `r nrow(df.clean)` patients of which `r round(nrow(df.clean %>% filter(Gender == "Female")) / nrow(df.clean) * 100, 2)`% are female and `r round(nrow(df.clean %>% filter(Gender == "Male")) / nrow(df.clean) * 100, 2)`% are male. The total number of patients with either Type I or Type II obesity are shown below, broken down by gender and obesity type:
+
+```{r q10_PatientStats, echo=FALSE, warning=FALSE}
+library(knitr)
+#Group patients with obesity 1 or 2 and summarized by gender
+df.obesity <- df.clean %>% filter(Obesity == "Overweight_Level_I" | Obesity == "Overweight_Level_II") %>%  group_by(Gender, Obesity) %>% summarize(Count = n(), .groups = "drop")
+kable(df.obesity,
+  format = "simple",
+  digits = getOption("digits"),
+  caption = ("Obesity by Type"),)
+
+```
+
+```{r q11_Correlation, echo=FALSE, warning=FALSE}
+corData <- cor.test(df.clean$Age, df.clean$BMI)
+corValue <- if (corData$estimate > 0) { "positive"} else { "negative" }
+
+genderCor <- df.clean %>% group_by(Gender) %>% summarise(Correlation = cor(Age, BMI))
+```
+We have found a `r corValue` correlation (R = `r corData$estimate`, p `r corData$p.value`) between age and BMI. More specifically, the correlations, when separated by gender, are as follows: `r genderCor[1, "Gender"]$Gender `: `r round(genderCor[1, "Correlation"]$Correlation, 2)` and `r genderCor[2, "Gender"]$Gender `: `r round(genderCor[2, "Correlation"]$Correlation, 2)`.

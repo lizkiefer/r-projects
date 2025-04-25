@@ -1,0 +1,195 @@
+---
+title: "Build Classification Models"
+author: "Liz Kiefer"
+date: "spring 2024"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / kNN 12.1
+---
+## Load the data and add libraries 
+
+I load the data from its URL into a data frame and add the libraries that will be used.
+```{r q2_Dataframe_Creation, echo=TRUE, warning=FALSE}
+library(class)
+library(caret)
+library(ggplot2)
+df.orig <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/parkinsons-salted-03.409.csv", stringsAsFactors = FALSE)
+df.work <- df.orig
+
+```
+
+## I inspect the columns for outliers using a z-score approach 
+where any value with a z-score of more than 3.0 is an outlier from the mean and will be replaced with an NA and later with a trimmed median. 
+
+A list of which columns have outliers and what the values are, is provided:
+```{r q3_Outliers_Inspection, echo=TRUE, warning=FALSE}
+numeric.cols <- sapply(df.work, is.numeric)
+for (c in 1:length(numeric.cols)) {
+  if (numeric.cols[c] == TRUE) {
+    m <- mean(df.work[,c], na.rm = T)
+    s <- sd(df.work[,c], na.rm = T)
+    
+    outliers <- which(abs((m - df.work[,c]) / s) > 3.0)
+    
+    if (length(outliers) > 0) {
+      cat("Found outliers in column '", names(df.work)[c], "': \n")
+      cat("   --> ", df.work[outliers,c], "\n\n")
+    }
+  }
+}
+
+```
+Found outliers will be replaced with NA and later with the 10% trimmed median.
+
+
+## I identify and impute missing values (NA) by using the 10% trimmed median based on Gender.
+```{r q4_Input_Missing_Values, echo=TRUE, warning=FALSE}
+
+colSums(is.na(df.work) | df.work == "")
+
+num.Rows <- nrow(df.work)
+num.Cols <- ncol(df.work)
+
+found <- F
+
+for (c in 1:num.Cols) {
+  column.name <- names(df.work)[c]
+  if (column.name == "Gender" || !is.numeric(df.work[[c]])) next
+  for (i in 1:num.Rows) {
+    if (is.na(df.work[i, c]) || df.work[i, c] == "") {
+      gender <- df.work[i, "Gender"]  
+      if (!is.na(gender)) {
+        # Set median based on gender's median
+        gender_data <- df.work[df.work$Gender == gender, ]
+        col_median <- median(gender_data[[c]], trim = 0.10, na.rm = TRUE)
+        df.work[i, c] <- col_median
+      }
+      else {
+        # Gender is undefined, set median based on all rows
+        col_median <- median(c, trim = 0.10, na.rm = TRUE)
+        df.work[i, c] <- col_median
+      }
+    }
+  }
+  
+  # Print data about missing values found
+  missing.Values <- sum(is.na(df.work[, c]) | df.work[, c] == "")
+  if (missing.Values > 0) {
+    print(paste("Column '", column.name, "' has ", missing.Values, " missing values.", sep = ""))
+    found <- T
+  }
+}
+
+# If this code worked as intended, this should be the only thing printed
+if (!found) {
+  print("No missing values detected")
+}
+
+
+
+```
+In this section of code I just added the part where I replace the NA values with the trimmed median and checked for the NA values
+
+## I encode the categorical variable Gender using frequency encoding where we replace the categorical values with their frequency of occurrence.
+```{r q5_Outliers_Inspection, echo=TRUE, warning=FALSE}
+gender_freq <- table(df.work$Gender)
+df.work$Gender_freq_enc <- as.numeric(gender_freq[as.character(df.work$Gender)])
+```
+
+## I scale all numeric features using z-score standardization. Save the result into a new dataframe called df.scaled and use this new dataframe going forward.
+```{r q6_Categorical_Variable_by_Gender, echo=TRUE, warning=FALSE}
+# Normalize a dataset by building a simple function to scale the features to a fixed range
+min_max_normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+numeric_cols <- sapply(df.work, is.numeric)
+normalized <- as.data.frame(lapply(df.work[, numeric_cols], min_max_normalize))
+df.scaled <- normalized
+```
+
+## I split the data into training and validation using createDataPartition(). Retain 85% of the data for training and set the random number generator seed to 88765.
+```{r q7_Categorical_Variable_by_Gender, echo=TRUE, warning=FALSE}
+set.seed(88765)
+trainIndex <- createDataPartition(df.scaled$Gender, p = 0.85, list = FALSE)
+trainData <- df.scaled[trainIndex, ]
+testData <- df.scaled[-trainIndex, ]
+dim(trainData)
+dim(testData)
+```
+
+
+## I calculate the accuracy of the kNN model by applying it to the testing data using a k of 7 using the kNN implementation from the class package.
+```{r q8_kNN_Accuracy, echo=TRUE, warning=FALSE}
+
+trainX <- trainData[, -8]    
+trainY <- as.factor(trainData$Gender_freq_enc)
+
+testX <- testData[, -8] 
+testY <- as.factor(testData$Gender_freq_enc)
+
+
+
+predictions <- class::knn(train = trainX, test = testX, cl = trainY, k = 7)
+sum(predictions == testY) / length(testY)
+```
+
+To measure how well our model performs, we compute the accuracy by comparing the predicted and actual values. Our accuracy was above fifty percent and it shows that our kNN model did very well. The k value was good for the balance of the test model. It would still be beneficial to test other values of k or perform other tests to confirm the accuracy of our model.
+
+## We will test our model with a New Patient kNN (k = 7):
+```{r q9_Explaining_New_Patient, echo=TRUE, warning=FALSE}
+new_Patient <- data.frame(
+  Attribute = c("Age", "Gender", "Alcohol Consumption", "Family history or traumatic brain injury", 
+                "Triglycerides Level", "Sleep Disorders"),
+  Value = c(74, "Male", "3.2 drinks/week", "No", 387.7, "Yes")
+)
+print(new_Patient)
+```
+```{r q9_Prediction, echo=TRUE, warning=FALSE}
+new.case <- data.frame(
+  Age = 74,
+  AlcoholConsumption = 3.2,
+  FamilyHistoryParkinsons = 0,
+  TraumaticBrainInjury = 0,
+  CholesterolTriglycerides = 387.7,
+  SleepDisorders = 1, 
+  Diagnosis = 0)
+
+combined.df <- rbind(df.scaled[,1:7], new.case)
+combined.scaled <- as.data.frame(scale(combined.df))
+new.case <- combined.scaled[nrow(combined.scaled),]
+
+predicted.diagnosis <- knn(train = trainX, test = new.case, cl = trainY, k = 7)
+as.character(predicted.diagnosis)
+
+print(predicted.diagnosis)
+```
+
+## Prediction:
+
+The model seems to be suggesting that our new patient has a Parkinson's Disease diagnosis.
+
+## I evaluate the accuracy on the testing data for all values of k from 5 to 15. 
+Then, I plot the accuracy in a chart where k is on the x-axis and accuracy on the y-axis. label your chart.
+```{r q10_Accuracy_Eval, echo=TRUE, warning=FALSE}
+accuracy.results <- data.frame(k = integer(), accuracy = numeric())
+for (k in 5:15) {
+  predictions <- knn(train = trainX, test = testX, cl = trainY, k = k)
+  accuracy <- sum(predictions == testY) / length(testY)
+  accuracy.results <- rbind(accuracy.results, data.frame(k = k, accuracy = accuracy))
+}
+ggplot(accuracy.results, aes(x = k, y = accuracy)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red", size = 2) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "kNN Accuracy vs. k",
+    x = "k (Number of Neighbors)",
+    y = "Accuracy on Test Set"
+  ) +
+  theme_minimal()
+```
+
+Our graph shows a somewhat high accuracy, at least above 50% that as the model shows highest at k = 5 or 7. As k increases the accuracy decreases which I think makes sense because of the scaling that was done earlier could be having an effect on our model.
+Overall I think it looks good but some other tests should be run to make sure it is running properly!
+Thank you.

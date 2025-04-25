@@ -1,0 +1,11 @@
+---
+title: "Practicum1-AI-Conversations.Rmd"
+output: html_notebook
+---
+
+
+```{r PartE_Graph,echo=TRUE, warning=FALSE}
+# Asked for help with my graph in part E 
+#https://chatgpt.com/share/67b4ef3e-2c70-8006-be56-2f348596a876
+```
+

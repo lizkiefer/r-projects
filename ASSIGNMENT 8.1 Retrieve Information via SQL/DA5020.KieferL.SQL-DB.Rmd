@@ -1,0 +1,218 @@
+---
+title: "Create ProjectDB SQLite Database"
+author: "Liz Kiefer"
+subtitle: 'Assignment 08.1: SQL Queries'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r}
+library(RSQLite)
+
+fpath = ""
+dbfile = "projectdb3.db"
+
+# if database file already exists, we connect to it, otherwise
+# we create a new database
+dbcon <- dbConnect(RSQLite::SQLite(), paste0(fpath,dbfile))
+```
+
+```{sql connection=dbcon}
+drop table if exists projectmgr
+```
+
+```{sql connection=dbcon}
+drop table if exists projects
+```
+
+```{sql connection=dbcon}
+drop table if exists certifications
+```
+
+```{sql connection=dbcon}
+drop table if exists earnedcerts
+```
+
+```{sql connection=dbcon}
+create table projectmgr (
+  pmid integer,
+  name text not null,
+  primary key (pmid)
+)
+```
+
+```{sql connection=dbcon}
+create table certifications (
+  cid integer not null,
+  cert text not null,
+  body text not null,
+  primary key (cid)
+)
+```
+
+```{sql connection=dbcon}
+create table earnedcerts (
+  pmid integer,
+  cert integer not null,
+  primary key (pmid,cert)
+  foreign key (pmid) references projectmgr(pmid)
+  foreign key (cert) references certifications(cid)
+)
+```
+
+```{sql connection=dbcon}
+create table projects (
+  pid integer,
+  pname text default "No Name",
+  budget double default 0,
+  pmgr integer  not null,
+  primary key (pid),
+  foreign key (pmgr) references projectmgr(pmid)
+)
+```
+
+```{sql connection=dbcon}
+insert into certifications values
+  (1,"PMP","Project Management Institute"),
+  (2,"APM","Project Management Institute"),
+  (4,"CBAP","International Institute of Business Analysis"),
+  (6,"PSM","Scrum Organization"),
+  (5,"CIPM","American Academy of Project Management")
+```
+
+```{sql connection=dbcon}
+insert into projectmgr values
+  (11,"Xi Xufen"),
+  (22,"Ann Kelsey"),
+  (18,"Sandeep Ranghani"),
+  (19,"Alicia Knauss"),
+  (38,"Roxanna da Silva"),
+  (23,"Wagner Ormond"),
+  (47,"Margaret O'Shea"),
+  (43,"Kamala Patel"),
+  (20,"Alden White")
+```
+
+```{sql connection=dbcon}
+insert into earnedcerts values
+  (11,1),
+  (11,4),
+  (18,1),
+  (22,1),
+  (19,1),
+  (47,1),
+  (23,1),
+  (20,1),
+  (20,4),
+  (38,5)
+```
+
+```{sql connection=dbcon}
+insert into projects values
+  (100,"GOTAM",350000,11),
+  (200,"Data Twist",875000,20),
+  (300,"Alpha Launch",12500,18),
+  (302,"Alpha Arch Design",38000,18),
+  (303,"Alpha Dev",125000,18),
+  (305,"Alpha Analytics Dashboard",22900,38),
+  (505,"Training Portal Design",49900,19),
+  (811,"Bootstrap Demo",0,47)
+```
+
+```{sql connection=dbcon}
+select * from projectmgr
+```
+
+```{sql connection=dbcon}
+select * from projects
+```
+
+```{sql connection=dbcon}
+select * from certifications
+```
+
+```{sql connection=dbcon}
+select * from earnedcerts
+```
+
+## ERD of Project Database 
+The ERD for the project database is shown below:
+![](./lucidchart.png){width="70%"}
+[LucidChart ERD](https://lucid.app/documents/embedded/4a67a39e-2088-4d3f-96e8-ecccf39a6821)
+
+### Q2.1
+```{sql connection=dbcon}
+select name from projectmgr
+
+```
+
+### Q2.2
+```{sql connection=dbcon}
+select count(name) from projectmgr
+```
+
+### Q2.3
+```{sql connection=dbcon}
+select distinct projectmgr.name
+from projectmgr join projects on projectmgr.pmid = projects.pmgr
+order by projectmgr.name asc
+```
+
+### Q2.4
+```{sql connection=dbcon}
+select projects.pname, projectmgr.name, projects.budget
+from projects
+join projectmgr on projects.pmgr = projectmgr.pmid
+
+```
+
+### Q2.5
+```{sql connection=dbcon}
+select avg(budget) as avg_Budget from projects
+```
+
+### Q2.6
+```{sql connection=dbcon}
+select projectmgr.name, count(earnedcerts.cert) as cert_Count
+from projectmgr
+join earnedcerts on projectmgr.pmid = earnedcerts.pmid
+group by projectmgr.name
+having count(earnedcerts.cert) > 2
+```
+
+### Q2.7
+```{sql connection=dbcon}
+select count(*) as projects_Belowavg
+from projects
+where budget < (select avg(budget) from projects)
+```
+
+### Q2.8
+```{sql connection=dbcon}
+select pname 
+from projects
+where pname like '%design%'
+```
+
+### Q2.9
+```{sql connection=dbcon}
+select count(*) as num_Project_Managers
+from (select pmgr, sum(budget) as total_Budget
+    from projects
+    group by pmgr
+    having sum(budget) <= 50000) as budget_Filtered
+```
+
+### Q2.10
+```{sql connection=dbcon}
+select name 
+from projectmgr
+where pmid not in (select pmgr from projects)
+```
+
+```{r}
+dbDisconnect(dbcon)
+```

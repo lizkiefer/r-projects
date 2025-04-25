@@ -1,0 +1,233 @@
+---
+title: "Data Analytics & Visualization"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Practicum I
+---
+
+
+
+```{r PartA_Loading_DF,echo=TRUE, warning=FALSE}
+
+# My initial dataframe where df pharma-sales-randomized.tsv input 
+df.sales <- read.delim("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/pharma-sales-randomized.tsv",  header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+```
+
+```{r PartB_Cleaning_data,echo=TRUE, warning=FALSE}
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Part B.I and Part B.II: 
+#Detecting outliers, chose to identify outliers with IQR and replace them with the median.
+
+# Removed the money sign, it needs to be removed for step IV and I thought it would be easiest to remove it first thing.
+df.sales$revenue <- as.numeric(sub("\\$", "", df.sales$revenue))
+df.sales$expenses <- as.numeric(sub("\\$", "", df.sales$expenses))
+
+# I chose interquartile range (IQR) method to detect outliers because in previous statistics class we used IQR to detect outliers, and it made sense to me, it is simple and I would be able to do it in r by making a function for it and I think it detects outliers properly.  
+
+replace_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * iqr_value
+  upper_bound <- Q3 + 1.5 * iqr_value
+  
+  x[x < lower_bound | x > upper_bound] <- median(x, na.rm = TRUE)
+  return(x)}
+
+# Replacing missing values with zero first 
+df.sales$revenue <- replace(df.sales$revenue, is.na(df.sales$revenue), 0)
+df.sales$expenses <- replace(df.sales$expenses, is.na(df.sales$expenses), 0)
+
+# Replacing outlier values with the median, I replaced them with the median because the median is not able to be skewed like the mean is by the outliers. I did not remove the outliers because I thought If I removed data, our data was already so small that it would become inaccurate.
+
+df.sales$revenue <- replace_outliers(df.sales$revenue)
+df.sales$expenses <- replace_outliers(df.sales$expenses)
+
+
+# Part B.III Parsing through the date column for the different formats we may encounter. I did this first to be able to write a for loop that checks for the different formats. I also set up empty columns for month, day and year
+date_formats = c("%B %d %Y", "%b %d %Y", "%B-%d-%Y", "%b-%d-%Y")
+df.sales$month <- NA
+df.sales$day <- NA
+df.sales$year <- NA
+
+# Take those dates,look through them and match them to the date formats above, then put them in their proper column.
+for (i in 1:nrow(df.sales)) {
+  for (date_format in date_formats) {
+    formatted_date <- as.Date(df.sales$date[i], format=date_format)
+    if (!is.na(formatted_date)) {
+      df.sales$month[i] <- format(formatted_date, "%m")
+      df.sales$day[i] <- format(formatted_date, "%d")
+      df.sales$year[i]  <- format(formatted_date, "%Y")
+      break}}}
+
+
+# Part B.IV I removed the $ sign on step I and replaced the outlier and NA characters with my median number. Therefore this was an easy math of subtracting revenue by expenses and multiplying it by 1000 and putting them into a column.
+
+df.sales$ProfitLoss <- as.integer((df.sales$revenue - df.sales$expenses) * 1000)
+
+```
+
+
+```{r PartC_Showing_Rev_Expenses,echo=TRUE, warning=FALSE}
+
+library(dplyr)
+library(knitr)
+library(kableExtra)
+# Part I Quarterly revenue per year
+
+# Changed the month into numbers so that can be better worked with 
+df.sales <- df.sales %>% mutate(month_int = as.numeric(month))
+
+# Separating data into quarters to be able  to classify sales 
+df.quarterly <- df.sales %>%
+  # Quarter is just the month divided by 3, raised to the nearest whole number
+  mutate(quarter = ceiling(month_int / 3)) %>%
+  # Group to summarize sales together by year+quarter
+  group_by(year, quarter) %>%
+  # Add sales together for each quarter, then remove groups of year+quarter after summarizing
+  summarise(revenue = sum(revenue), .groups = "drop") %>%
+  arrange(year, quarter)
+
+# kableExtra table showing our arranged by year, quarter, and revenue
+df.quarterly %>%
+  kbl(caption = "Quarterly revenue per year", col.names = c("Year", "Quarter", "Revenue (Thousand \\$)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+
+# Part II Revenue, expenses, and profit-loss per month averaged across the years
+
+# First step was to group the data by month and find the mean for revenue, expenses, and profit loss
+df.monthlyrev <- df.sales %>%
+  group_by(month) %>%
+  summarise(
+    avg_revenue = mean(revenue),
+    avg_expenses = mean(expenses),
+    avg_profit_loss = mean(ProfitLoss), 
+    # Drop the groups and change the months back into names instead of numbers, because previously I changed them into numbers to be able to use          them for part I 
+    .groups = "drop") %>% mutate(month = factor(as.numeric(month), levels = 1:12, labels = month.name))
+
+df.monthlyrev %>%
+  kbl("html", caption = "Average Revenue, Expenses, and Profit-Loss per Month", digits=2, col.names = c("Month", "Revenue Average (Thousand \\$)", "Expenses Average (Thousand \\$)", "Profit/Loss Average (\\$)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+
+# Part III Percentage change in revenue, expenses, and profit-loss from the prior month for each year
+# Group dataframe by year and month, then add together all revenues, expenses, and profits for each year+month
+
+df.monthly <- df.sales %>%
+  group_by(year, month) %>%
+  summarise(
+    revenue = sum(revenue),
+    expenses = sum(expenses),
+    ProfitLoss = sum(ProfitLoss),
+    .groups = "drop") %>%
+  arrange(year, month)
+
+# Function to calculate percent change in value between two numbers
+calc_Change <- function(value, prevValue) {
+  if (length(prevValue) == 0) {
+    return(0)
+  }
+  else
+  {
+    return((value - prevValue) / prevValue * 100)
+  }
+}
+
+# Calculate changes in revenue, expenses, and profits between each month using the calc_Change function
+for (i in 1:length(df.monthly$ProfitLoss)) {
+  df.monthly$revenue_change[i] <- calc_Change(df.monthly$revenue[i], df.monthly$revenue[i - 1])
+  df.monthly$expenses_change[i] <- calc_Change(df.monthly$expenses[i], df.monthly$expenses[i - 1])
+  df.monthly$profit_loss_change[i] <- calc_Change(df.monthly$ProfitLoss[i], df.monthly$ProfitLoss[i - 1])}
+
+# Update month from integer format to names
+df.monthly <- df.monthly %>% mutate(month = month.abb[as.integer(month)])
+
+df.monthly %>%
+  kbl("html", caption = "Percentage change in revenue, expenses, and profit-loss from the prior month for each year", digits=2, col.names = c("Year", "Month", "Revenue (Thousand \\$)", "Expenses (Thousand \\$)", "Profit/Loss Average (\\$)", "Change in Revenue (%)", "Change in Expenses (%)", "Change in Profit/Loss (%)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r PartD_WMA,echo=TRUE, warning=FALSE}
+# First Set up a variable with the Weighted moving average (WMA) numbers to be able to use it in my for loop
+weight <- c(0.1, 0.3, 0.6)
+
+# Needed to create a date object from the month and year strings. Create a new data frame that will contain the year+month in one column, the profit loss in a column, and the forecast in a column because in part E we need it for the graph.
+df.forecast <- df.monthly %>%
+  mutate(year_month = as.Date(paste("01", month, year, sep = " "), "%d %b %Y")) %>%
+  select(year_month, ProfitLoss)
+
+# Multiply each of the prior three months by their corresponding weight and sum those values to obtain the forecast and add it to the df.forecast.
+df.forecast$forecast <- rep(NA, length(df.monthly$ProfitLoss))
+for (i in 3:length(df.monthly$ProfitLoss)) {
+  df.forecast$forecast[i] <- df.monthly$ProfitLoss[i - 2] * weight[1] + 
+                            df.monthly$ProfitLoss[i - 1] * weight[2] + 
+                            df.monthly$ProfitLoss[i] * weight[3]}
+
+# Add a new row containing our forecast for Jan 2025 to df.forecast 
+index <- nrow(df.forecast)
+# Create this jan_forecast to forecast January 2025
+jan_forecast <- df.forecast$forecast[index - 2] * weight[1] + 
+                            df.forecast$forecast[index - 1] * weight[2] + 
+                            df.forecast$forecast[index] * weight[3]
+
+# Calculate what the next month and year in the data will be using the final month in df.forecast
+next_month <- as.integer(format(df.forecast$year_month[index], "%m")) + 1
+next_year <- as.integer(format(df.forecast$year_month[index], "%Y"))
+# If the month has rolled from January to December, increment the year
+if (next_month > 12) {
+  next_month <- 1
+  next_year <- next_year + 1}
+
+# Format the month and year into a date object
+next_date <- as.Date(paste("01", next_month, next_year), format="%d %m %Y")
+# Create a new dataframe to display the forecast for next month
+df.nextmonth <- data.frame(year_month = c(format(next_date, format = "%b %Y")), forecast = c(jan_forecast))
+
+# Add next month's forecast to graph, leaving ProfitLoss empty so it's not displayed on the graph
+df.forecast[nrow(df.forecast) + 1,] = list(next_date, NA, jan_forecast) 
+
+df.nextmonth %>%
+  kbl("html", caption = "Forecast for Following Month", col.names = c("Year/Month", "Forecast (\\$)")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r PartE_Graph,echo=TRUE, warning=FALSE}
+# Checks if the user has ggplot2 package
+if (!require("ggplot2", quietly = TRUE)) {
+   install.packages("ggplot2", 
+                    repos = "http://cran.us.r-project.org", 
+                    quiet = TRUE)}
+
+library(ggplot2)
+
+# Get only every 12th month for displaying the X axis
+display_months <- df.forecast$year_month[seq(length(df.forecast$year_month), 1, by = -12)]
+
+ggplot(df.forecast, aes(x = factor(year_month, levels = unique(year_month)))) +
+  geom_line(aes(y = ProfitLoss, color = "ProfitLoss", group = 1), size = 1) +
+  geom_line(aes(y = forecast, color = "Forecast", group = 1), size = 1) +
+  scale_color_manual(values = c("ProfitLoss" = "blue", "Forecast" = "red"), 
+                     labels = c("Forecast", "ProfitLoss")) + 
+  scale_x_discrete(labels = function(date) {
+    # If month is in the set above for display, show it, or blank otherwise
+    ifelse(date %in% display_months, format(as.Date(date), "%b %Y"), "")
+  }) +
+  labs(
+    title = "Profit & Loss By Month",
+    subtitle = "Trend Over Time",
+    caption = "Source: Internal Accounting Data -- CONFIDENTIAL",
+    x = "Year & Month",
+    y = "Dollars",
+    color = "Legend"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```

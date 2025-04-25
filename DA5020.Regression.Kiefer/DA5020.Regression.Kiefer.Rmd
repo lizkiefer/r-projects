@@ -1,0 +1,244 @@
+---
+title: "Build Regression Models"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Regression 11.1
+---
+This summarizes the data we extracted from the CSV
+```{r Q2_CSV_Df_load,  echo=TRUE, warning=FALSE}
+df.wine <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/wine-quality-data.csv", stringsAsFactors = FALSE) 
+head(df.wine)
+summary(df.wine)
+```
+## Identifying outliers
+Chose to replace outliers with median number because I think the median works better to replace the outliers because the median is the number separating the top half from the bottom half. For what we are trying to achieve here I think it works great. This is the same code I used for a previous assignment, I just made it into a function to make it simpler. 
+```{r Q3_Outlier_Id,  echo=TRUE, warning=FALSE}
+
+get_outliers <- function(input_data) {
+  mu_fixed <- mean(input_data)
+  sd_fixed <- sd(input_data)
+  zscore_fixed <- (input_data - mu_fixed) / sd_fixed
+  outliers_fixed <- which(abs(zscore_fixed) > 3.0)
+  return(outliers_fixed)
+}
+
+# Checking outliers for fixed.acidity
+df.wine$fixed.acidity[get_outliers(df.wine$fixed.acidity)] <- median(df.wine$fixed.acidity)
+
+# Checking outliers for residual.sugar
+df.wine$residual.sugar[get_outliers(df.wine$residual.sugar)] <- median(df.wine$residual.sugar)
+
+# Checking outliers for ph
+df.wine$ph[get_outliers(df.wine$ph)] <- median(df.wine$ph)
+
+# Checking outliers for sulphates
+df.wine$sulphates[get_outliers(df.wine$sulphates)] <- median(df.wine$sulphates)
+
+# Checking outliers for alcohol
+df.wine$alcohol[get_outliers(df.wine$alcohol)] <- median(df.wine$alcohol)
+
+# Checking outliers for quality
+df.wine$quality[get_outliers(df.wine$quality)] <- median(df.wine$quality)
+
+```
+
+## Identifying and inputting missing values
+Chose to check for the missing values beforehand, then created a function to replace the NA value with the median, based on the wine type. 
+```{r Q4_One-Hot,  echo=TRUE, warning=FALSE}
+
+# Check for missing values
+num.Rows <- nrow(df.wine)
+num.Cols <- ncol(df.wine)
+
+found <- F
+
+for (c in 1:num.Cols){
+  missing.Values <- which(is.na(df.wine) | df.wine[,c] == "")
+  num.Missing.Values <- length(missing.Values)
+  if (num.Missing.Values > 0) {
+    print(paste0("Column '", names(df.wine)[c], "' has ", num.Missing.Values, " missing values"))
+    found <- T
+  }
+}
+if (!found) {
+  print("no missing values detected")
+}
+```
+
+I used some of the code from the reading material but decided against using the material's method and used a for loop instead to replace the missing values with the median.
+```{r Q4_One-Hot_replace_vals,  echo=TRUE, warning=FALSE}
+
+# Made a function to check for missing values in the dataset 
+missing_values <- function(df, column_name) {
+  df[, column_name] <- ave(df[, column_name], df$type, 
+                           FUN = function(x) ifelse(is.na(x), median(x, na.rm = TRUE), x))
+  return(df)
+}
+num_columns <- c("fixed.acidity", "residual.sugar", "pH", "sulphates", "alcohol", "quality", "type")
+
+# Replace those missing values with the median using a for loop with the function
+for (col in num_columns) {
+  df.wine <- missing_values(df.wine, col)
+}
+
+# Check again for missing values
+
+num.Rows <- nrow(df.wine)
+num.Cols <- ncol(df.wine)
+
+found <- F
+
+for (c in 1:num.Cols){
+  missing.Values <- which(is.na(df.wine) | df.wine[,c] == "")
+  num.Missing.Values <- length(missing.Values)
+  if (num.Missing.Values > 0) {
+    print(paste0("Column '", names(df.wine)[c], "' has ", num.Missing.Values, " missing values"))
+    found <- T
+  }
+}
+if (!found) {
+  print("no missing values detected")
+}
+
+
+```
+
+## Encoding any categorical variables using one-hot encoding
+I used this method because it was what was on the reading material for a one-hot encoding, What this does is set wine type red to 0 and winetype white to 1.
+```{r Q5_Id_Missing_Vals,  echo=TRUE, warning=FALSE}
+df.wine$type  <- ifelse(df.wine$type == "red", 0, 1)
+```
+
+## Full regression model using all features to predict wine quality
+I used this method because it was what was on the reading material for a one-hot encoding. This is a full regression model 
+```{r Q6_Full_Regression_Model,  echo=TRUE, warning=FALSE}
+model <- lm(quality ~ fixed.acidity + residual.sugar + pH + sulphates + alcohol,
+            data = df.wine)
+## Print summary of the model for investigation
+summary(model)
+```
+Our summary model shows a linear regression of the quality of the wine based on  the predictor variables fixed.acidity, residual.sugar, pH, sulfates, and alcohol. 
+Our p-value shows that the predictors seem to be statistically significant since the p value is so small. Per our estimate at 0 sultanates seem to have the highest positive effect on the wine quality, and pH the lowest. Based on the t-value alcholo seems to have the strongest effect on the wine quality with a 42. 
+
+
+## Using step-wise backward elimination of non-significant coefficients and associated variables.
+In the video embedded in our reading material, the speaker explains that it is important to visualize the data set that is why I visualize it. That is why I have set it up this way. 
+```{r Q7_Step-wise_backward_elimination,  echo=TRUE, warning=FALSE}
+library(Hmisc)
+library(psych)
+select.wine <- subset(df.wine, select = c(fixed.acidity, residual.sugar, pH, sulphates, alcohol, quality))
+
+
+set.seed(2017)
+train.size <- 0.8
+train.index <- sample.int(length(df.wine$quality), round(length(df.wine$quality) * train.size))
+train.sample <- select.wine[train.index,]
+valid.sample <- select.wine[-train.index,]
+
+fit1 <- lm(quality ~ fixed.acidity + residual.sugar + pH + sulphates + alcohol,
+            data = train.sample)
+summary(fit1) 
+
+fit2 <- lm(quality ~ fixed.acidity + residual.sugar + pH + sulphates,
+            data = train.sample)
+summary(fit2) 
+fit3 <- lm(quality ~ fixed.acidity + residual.sugar + pH,
+            data = train.sample)
+summary(fit3) 
+fit4 <- lm(quality ~ fixed.acidity + residual.sugar,
+            data = train.sample)
+summary(fit4) 
+plot(fit4)
+
+
+train.sample$Pred.quality <- predict(fit4, newdata = subset(train.sample, select = c(fixed.acidity, residual.sugar, pH, sulphates, alcohol, quality)))
+valid.sample$Pred.quality <- predict(fit4, newdata = subset(valid.sample, select = c(fixed.acidity, residual.sugar, pH, sulphates, alcohol, quality)))
+
+summary.evals <- summary(fit1)$coefficients
+print(summary.evals)
+train.corr <- round(cor(train.sample$Pred.quality, train.sample$quality), 2)
+train.RMSE <- round(sqrt(mean((train.sample$Pred.quality - train.sample$quality)^2)))
+tran.MAE <- round(mean(abs(train.sample$Pred.quality - train.sample$quality)))     
+#c(train.corr^2, train.RMSE, tran.MAE)
+
+valid.corr <- round(cor(valid.sample$Pred.quality, valid.sample$quality), 2)
+valid.RMSE <- round(sqrt(mean((valid.sample$Pred.quality - valid.sample$quality)^2)))
+valid.MAE <- round(mean(abs(valid.sample$Pred.quality - valid.sample$quality)))     
+#c(valid.sample^2, valid.RMSE, valid.MAE)
+```
+
+## Displaying the model obtained above as an equation
+```{r Q8_Model_Equation,  echo=TRUE, warning=FALSE}
+# Print the equation from model q7
+print(paste("Quality = (", 
+            summary.evals["fixed.acidity", "Estimate"], " * fixed.acidity ) + (", 
+            summary.evals["residual.sugar", "Estimate"], " * residual.sugar ) + (", 
+            summary.evals["pH", "Estimate"], " * pH ) + ",  
+            summary.evals["sulphates", "Estimate"], " * sulphates ) + (",  
+            summary.evals["alcohol", "Estimate"], " * alcohol ) + (", 
+            summary.evals["(Intercept)", "Estimate"], ")"))
+
+
+
+```
+
+## Calculating the RMSE for the regression model above
+
+```{r Q9_,  echo=TRUE, warning=FALSE}
+# RMSE for the regression model from q7
+rmse <- sqrt(mean((df.wine$quality - predict(fit1))^2))
+print(rmse)
+```
+The number from our RMSE value seems to show that my regression model is accurate and off by a low number from our data set standard deviation of 0.256144.
+
+
+## Predicting wine quality using the regression model from above with the following characteristics: fixed.acidity = 7.3, residual.sugar = 1.84, pH = 3.67, sulphates = 0.49, alcohol = 8.6, type = "white"
+I wrote this code following the reading material. and the above equation. The only thing I did different was that I set variables for my characteristics becuause I wanted to make it easier to plug the numbers into the equation.
+```{r Q10_,  echo=TRUE, warning=FALSE}
+fixed.acidity <- 7.3
+residual.sugar <- 1.84
+pH <- 3.67
+sulphates <- 0.49
+alcohol <- 8.6
+
+print(
+  (summary.evals["fixed.acidity", "Estimate"] * fixed.acidity) + 
+  (summary.evals["residual.sugar", "Estimate"] * residual.sugar) + 
+  (summary.evals["pH", "Estimate"] * pH) +   
+  (summary.evals["sulphates", "Estimate"] * sulphates) +  
+  (summary.evals["alcohol", "Estimate"] * alcohol) + 
+  summary.evals["(Intercept)", "Estimate"])
+```
+
+
+## Calculating the 95% confidence interval using the predict() function
+To find the  the 95% confidence interval and the predict() function.
+```{r Q11_,  echo=TRUE, warning=FALSE}
+new_wine <- data.frame(
+  fixed.acidity = 7.3,
+  residual.sugar = 1.84,
+  sulphates = 0.49,
+  alcohol = 8.6
+)
+predict(fit1, newdata = new_wine, interval = "confidence", level = 0.95)
+```
+
+## Evaluating the distribution of the residuals using a Q-Q plot as well as the Shapiro-Wilk Test
+Randomly selecting values from our sample because R only allows 3-5000 values from our sample.
+```{r Q12_,  echo=TRUE, warning=FALSE}
+sample_fit <- sample(resid(fit1), 5000)
+shapiro.test(sample_fit)
+
+
+hist(resid(model), main = "Histogram of Residuals", col = "lightblue")
+qqnorm(resid(fit1))
+qqline(resid(fit1), col = "red")
+```
+
+The histogram appears bell-shaped, showing a somewhat symmetric distribution because I replaces the outlines with the median. It does seem to be not perfectly normal; there may be some slight skew maybe I should have gone a bit lower on my standard deviation value cut off. 
+The Q-Q Plot shows how my residuals compare to a normal distribution, for my graph the tails seem to deviate a bit showing the point I was stating about my histogram.
+In the randomly Shapiro-Wilk test, I had to choose 5000 values from the data because it would not allow me to process the whole data set, our p-value is extremely small, this tells me that the residuals do not come from a normal distribution, indicating the residuals are not perfectly normal. This may be due to the size of my data set, shapiro-wilk tests is a test for small data sets. this data set is quite large. 
+however I think it looks like it mostly stays within the normality lines, and bell shapes. 

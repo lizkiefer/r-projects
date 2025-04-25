@@ -1,0 +1,69 @@
+---
+title: "ASSIGNMENT 08.4: Combine Information Sources"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r Load_DF, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(sqldf)
+library(XML)
+# Loaded the XML and CSV files into data frames
+xmlURL <-"http://artificium.us/datasets/pharmaReps-B.xml"
+salesreps_XML <- xmlParse(xmlURL)
+df.Salesreps <- xmlToDataFrame(nodes = getNodeSet(salesreps_XML, "//rep"))
+xmlObj <- xmlParse(xmlURL)
+
+df.Salestrans <- read.csv("http://artificium.us/datasets/pharmaSalesTxn.csv")
+```
+
+```{r Adding_Attributes, echo=FALSE, message=FALSE, warning=FALSE}
+#The XML file did not add the attributes for the rep ID, therefore it had to be added to the representative data frame 
+repList <- xpathSApply(xmlObj, "//salesteam/*")
+for (i in 1:length(repList)) {
+  repID <- xmlAttrs(repList[[i]])[["rep_id"]]
+  df.Salesreps$rep_id[i] <- as.integer(substring(repID, 2))
+}
+```
+
+## Total Revenue per Sales Representative
+ 
+```{r Sales_Trans_Reps, echo=FALSE, message=FALSE, warning=FALSE}
+# Excluded Xinoprozen, and Alaraphosol from the data frame 
+df.temp <- df.Salestrans[!df.Salestrans$prod %in% c("Xinoprozen", "Alaraphosol"), ]
+
+# To add all of the sales transactions for each representative. The sales transactions were grouped by the rep names and ID
+library(dplyr)
+sales_Summary <- df.temp %>%
+  # Then used the repID from df.Salestrans and the red_id from df.Salesreps to match each sale to the representative 
+  left_join(df.Salesreps, by = c("repID" = "rep_id")) %>%
+  # Grouped each sales rep by first and last name 
+  group_by(firstName, lastName) %>%
+  # Added the amount of each sale for each representative to the total_amount column
+  summarise(total_amount = sum(amount)) %>%
+  # Arranged in descending order
+  arrange(desc(total_amount))
+
+
+library(knitr)
+library(kableExtra)
+# Set up a simple table to display the last name, first name, and the total amount sold by each sales rep ordered from most to least
+kable(sales_Summary, format = "html", caption = "Total Revenue per Sales Representative") %>%
+  kable_styling(bootstrap_options = c("striped"),
+                full_width = FALSE, position = "center")
+
+```
+
+## Lowest per unit cost 
+
+```{r Unit_Cost, echo=FALSE, message=FALSE, warning=FALSE}
+# This chunk of code displays  the name of the drug with the lowest unit cost. This was done by dividing the amount by the quantity for each product and r already organizes it in ascending order, therefore the first product on the list will be the drug with the lowest per unit cost
+lowestUnitCost <- (df.Salestrans %>% arrange(amount / qty))$prod[1]
+
+```
+`r lowestUnitCost` is the drug with the lowest per unit cost 

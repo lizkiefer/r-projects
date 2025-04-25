@@ -1,0 +1,128 @@
+---
+title: "Hospital Data Analytics & Reporting"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Practicum II
+---
+
+```{r Connecting, echo=FALSE, warning=FALSE}
+library(RSQLite)
+conn <- dbConnect(SQLite(), "hospital-beds.sqlitedb")
+```
+
+```{r Setting_Variables, echo=FALSE, warning=FALSE}
+# Setting the variables to use in the r markdown explanations and the table summary for 
+total_institutions <- dbGetQuery(conn, "select count(*) as total_institutions from FACILITY;")[1, 1]
+total_licensed_beds <- dbGetQuery(conn, "select sum(ttl_licensed) as total_licensed_beds from FACILITY;")[1, 1]
+total_staffed_beds <- dbGetQuery(conn, "select sum(ttl_staffed) as total_staffed_beds from FACILITY;")[1, 1]
+average_staffed_beds <- dbGetQuery(conn, "select avg(ttl_staffed) as average_staffed_beds from FACILITY;")[1, 1]
+institutions_over_100 <- dbGetQuery(conn, "select count(*) as institutions_over_100 from FACILITY where ttl_staffed > 100;")$institutions_over_100
+staffed_percentage <- round((total_staffed_beds / total_licensed_beds) * 100, 2)
+one_hundred <- 100
+```
+
+We have analyzed `r total_institutions` medical institutions having a total of `r total_licensed_beds` licensed beds. However, not all beds are staffed. In fact, only `r staffed_percentage`% of all licensed beds are staffed. There are `r institutions_over_100` institutions that have more than `r one_hundred` staffed beds. The table below summarizes key information:
+
+```{r Table_Summary_beds, echo=FALSE, warning=FALSE}
+# Table summarizing the bed avg, and licensed, staffed per institutions 
+hospital_summary <- data.frame(
+  Total_Institutions = total_institutions,
+  Total_Licensed_Beds = total_licensed_beds,
+  Total_Staffed_Beds = total_staffed_beds,
+  Average_Staffed_Beds = average_staffed_beds
+)
+
+library(knitr)
+library(kableExtra)
+
+kable(hospital_summary, format = "html", caption = "Hospital Summary") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))%>%
+  row_spec(0, background = "lightblue", bold = TRUE, color = "black", font_size = 14) %>%
+  row_spec(seq(1, by = 2), background = "#F2F2F2") 
+
+```
+
+The chart below shows the distribution of beds:
+```{r Pie_Chart, echo=FALSE, warning=FALSE}
+# Pie chart showing the types of beds
+library(ggplot2)
+# Count totals for all bed types
+bed_data <- dbGetQuery(conn, "
+  select sum(ttl_licensed) as licensed_beds,
+         sum(ttl_census) as census_beds,
+         sum(ttl_staffed) as staffed_beds
+  from FACILITY;
+")
+bed_totals <- data.frame(
+  Category = c("Licensed Beds", "Census Beds", "Staffed Beds"),
+  Count = c(bed_data$licensed_beds, bed_data$census_beds, bed_data$staffed_beds)
+)
+ggplot(bed_totals, aes(x = "", y = Count, fill = Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() +  
+  labs(title = "Distribution of Licensed, Census, and Staffed Beds") +
+  scale_fill_manual(values = c("Licensed Beds" = "pink", "Census Beds" = "cyan", "Staffed Beds" ="purple"))
+```
+
+The breakdown of beds across the different types of beds is shown below:
+```{r Breakdown_Different_Beds, echo=FALSE, warning=FALSE}
+# The breakdown of beds across the different types of beds is shown in the table
+bed_breakdown <- dbGetQuery(conn, "
+  select BC.category as Bed_Type, 
+         sum(BF.licensed) as Licensed_Beds, 
+         sum(BF.census) as Census_Beds, 
+         sum(BF.staffed) as Staffed_Beds
+  from BED_FACTS BF
+  join BED_CATEGORIES BC ON BF.catid = BC.catid
+  group by BC.category
+  order by Licensed_Beds DESC;
+")
+
+kable(bed_breakdown, caption = "Breakdown of Beds by Type") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))%>%
+  row_spec(0, background = "lightblue", bold = TRUE, color = "black", font_size = 14) %>%
+  row_spec(seq(1, by = 2), background = "#F2F2F2") 
+```
+
+The top 10 facilities with the most staffed beds are listed below, along with the number of beds:
+```{r Top_Ten_Facilities_with_Most_Staffed_Beds, echo=FALSE, warning=FALSE}
+# The top 10 facilities with the most staffed beds are listed in the table, along with the number of beds
+top_facilities <- dbGetQuery(conn, "
+  select name as Facility_Name, ttl_staffed as Staffed_Beds
+  from FACILITY
+  order by ttl_staffed desc
+  limit 10;
+")
+kable(top_facilities, caption = "Top 10 Facilities with Most Staffed Beds") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))%>%
+  row_spec(0, background = "lightblue", bold = TRUE, color = "black", font_size = 14) %>%
+  row_spec(seq(1, by = 2), background = "#F2F2F2") 
+```
+
+The table below shows the names of the institutions with the most number of staffed beds per type of bed:
+```{r Table_with_Top_Staffed_Beds, echo=FALSE, warning=FALSE}
+# The table shows the names of the institutions with the most number of staffed beds per type of bed
+most_staffed_beds <- dbGetQuery(conn, "
+  select BC.category as Bed_Type, 
+         F.name as Facility_Name, 
+         max(BF.staffed) as Staffed_Beds
+  from BED_FACTS BF
+  join BED_CATEGORIES BC on BF.catid = BC.catid
+  join FACILITY F on BF.imsid = F.imsid
+  group by BC.category
+  order by Staffed_Beds DESC;
+")
+kable(most_staffed_beds, caption = "Institutions with the Most Staffed Beds per Bed Type", align = "c") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"))%>%
+  row_spec(0, background = "lightblue", bold = TRUE, color = "black", font_size = 14) %>%
+  row_spec(seq(1, by = 2), background = "#F2F2F2") 
+  
+```
+
+```{r Disconnect_DB, echo=FALSE, warning=FALSE}
+dbDisconnect(conn)
+```

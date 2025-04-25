@@ -2,3 +2,10 @@
 *.html
 *.Rproj
 *.csv
+*.db
+*.png
+*.pdf
+*.docx
+*.sqlitedb
+*.sqlite
+*.mp4

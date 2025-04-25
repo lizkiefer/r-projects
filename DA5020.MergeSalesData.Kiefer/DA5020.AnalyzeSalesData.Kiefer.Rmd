@@ -1,0 +1,104 @@
+---
+title: "Analyze Sales Data"
+subtitle: DA5020 / Assignment 03.2
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+authos: Liz Kiefer
+---
+
+
+```{r Files, echo=FALSE, warning=FALSE}
+# Lists the files we need by the ones that start with "pharmaSalesTxn", adds it to our reps data frame to use witht he [harma rep file and look for the reps IDs and compare to the sales 
+files <- list.files(path = "csv-data", pattern = "pharmaSalesTxn*")
+df.reps <- read.csv(file = "csv-data/PharmaReps.csv", header = TRUE)
+
+# Starting with an empty data frame named df.sales which will hold all combined data from sales dataframes
+df.sales <- data.frame()
+totalsales <- 0
+
+# Checks for the sales reps numbers in the files and adds it to our temporary data frame
+for (i in 1:length(files)) 
+{
+  df.tempsales <- read.csv(file = paste0("csv-data/", files[i]), header = TRUE)
+  df.sales <- merge(df.tempsales, df.sales, all = TRUE)
+  totalsales <-  totalsales + nrow(df.tempsales)
+}
+
+# Multiplies the two column by rows and adds them to our column named sales into our dataframe named df.sales so they can be used for sales per rep and per territory later
+df.sales$sales <- 0
+for (i in 1:nrow(df.sales)) {
+  df.sales$sales[i] <- df.sales$unitcost[i] * df.sales$qty[i]
+}
+
+```
+
+A total of `r as.integer(totalsales)` sales transactions were found in `r length(files)` files containing sales for the `r nrow(df.reps)` sales representatives listed below:
+
+```{r tableforrepandsales, echo=FALSE, warning=FALSE}
+# With this code chunk we use the data frames we set up in the chunk above to obtain the data for the sales each rep had to calculate it
+
+calcTotalSalesPerRep <- function(sales, reps){
+  df.SalesPerRep <- data.frame(repID=numeric(), repName=character(), repTR=character(), repSales=numeric())
+  
+  for (i in 1:nrow(reps)) {
+    rowSale <- 0
+    # This code finds all sales for each individual rep
+    for (j in 1:nrow(sales)) {
+      if (reps$repID[i] == sales$repID[j] ){
+        rowSale <- rowSale + sales$sales[j]
+      }
+    }
+    
+    # Adds a new row for current rep, their combined first and last name, territory, and total sales
+    df.SalesPerRep[nrow(df.SalesPerRep) + 1,] = list(as.numeric(reps$repID[i]), paste(reps$repFN[i], reps$repLN[i]),reps$repTR[i], rowSale)
+  }
+  
+
+  return(df.SalesPerRep)
+}
+
+library(knitr)
+totalSales <- calcTotalSalesPerRep(df.sales, df.reps)
+kable(totalSales,
+  format = "simple",
+  digits = getOption("digits"),
+  caption = ("Sales per Territory"),
+)
+
+
+```
+
+```{r Addsallsalesandterritory, echo=FALSE, warning=FALSE}
+# Using the sales column we set up previously we use the column to find the total sales for each territory
+calcTotalSalesPerTerritory <- function(salestrans) {
+  return(aggregate(sales ~ repTR, data = salestrans, sum))
+}
+
+df.sales$repTR <- ""
+for (i in 1:nrow(df.sales)) {
+  # Use rep for the sale to determine its territory
+  for (j in 1:nrow(df.reps)) {
+    if (df.sales$repID[i] == df.reps$repID[j] ){
+      df.sales$repTR[i] <- df.reps$repTR[j]
+      break
+    }
+  }
+}
+
+sales.Terr <- calcTotalSalesPerTerritory(df.sales)
+
+```
+
+
+Sales are broken down by the `r nrow(sales.Terr)` territories as follows:
+
+```{r tableterritory, echo=FALSE, warning=FALSE}
+kable(sales.Terr,
+  format = "simple",
+  digits = getOption("digits"),
+  caption = ("Sales per Representative"),
+  )
+
+```

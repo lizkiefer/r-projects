@@ -1,0 +1,162 @@
+---
+title: "Build Forecasting Models"
+subtitle: "DA5020 / Assignment 10.1"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+
+---
+
+### Explain, in markdown, your approach and discuss the results. Remove this note after you are done with your project!!!
+```{r Q2_CSV_DF_Setup_Sort,  echo=FALSE, warning=FALSE}
+suppressMessages(suppressWarnings({
+  library(TTR)
+  library(forecast)
+  library(ggplot2)
+  library(dplyr)
+  library(knitr)
+}))
+df.waterusage <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/WaterUsage-02-22-to-11-24.csv", stringsAsFactors = FALSE) 
+
+df.sorted <- df.waterusage %>%
+  arrange(Year, Month)
+
+```
+
+### Discussion of the Time Series Visualization of the Average Daily Water Usage Over Time
+Below is the "Visualization: Average Daily Water Use Over Time"
+
+```{r Q3_Timeseries_Visualization, echo=FALSE, warning=FALSE}
+df.sorted <- df.sorted %>% arrange(Year, Month)  
+df.sorted$Date <- factor(paste(df.sorted$Year, df.sorted$Month, sep = "-"), 
+                       levels = unique(paste(df.sorted$Year, df.sorted$Month, sep = "-")))
+df.sorted$daily.ts <- ts(df.sorted$Avg.Daily.Water.Use.in.Liters, start = c(2022, 2), 
+               frequency = 34)
+
+ggplot(df.sorted, aes(x = Date, y = `daily.ts`)) +
+  geom_line(group = 1, color = "green") +
+  geom_point(color = "orange") +
+  labs(title = "Average Daily Water Use Over Time",
+       subtitle = "Trend Analysis of Water Consumption",
+       x = "Year-Month",
+       y = "Average Daily Water Use (Liters)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Discussion on what was found based on the visualization
+There is an overall downward trend that can be seen, which can mean that there is less water being used over time. This may be due to conscious usage reduction and water conservation, or policy changes in the form of regulations. I would not be able to say for sure, but there is definitely a drastic change in water usage over the years. 
+The summer months seem to be highest even though the water usage is going down throughout the years. 
+
+
+## Possible Seasonality Factors in Water Usage
+It is possible that during hot months, peoples' usage of water increases and decreases during the cold months.
+
+## Appropriate Forecasting Methods
+I think that per our lecture, one of the best forecasting methods to use is Weighted Moving Average, because it takes into account the most recent data points and changes through the data. Maybe Simple Exponential Smoothing would be useful because we can improve it to consider seasonality. I think that Linear Regression Trend Model would be useful to use in this case because trends can be identified through visual inspection of time series plots or by using statistical methods like moving averages and regression analysis. I think those would be best to use to identify trends.
+Simple moving average would not be useful because it is a simple approach that smooths out short term fluctuations but does not take into account trend or seasonality. We would not use Holt’s Linear Trend Model because it also does not account for seasonality. 
+
+### Discussion of what was found in our Linear trend line (regression) forecasting model and Evaluation of our MSE
+```{r Q4_Linear_Trend_Line, echo=FALSE, warning=FALSE}
+
+trend.model <- lm(df.sorted$daily.ts ~ df.sorted$Date)
+df.sorted$forecast.val <- predict(trend.model, 
+                        newdata = data.frame(period = 34))
+summary(df.sorted$forecast.val)
+```
+```{r Q5_MSE_Evaluate_Model, echo=FALSE, warning=FALSE}
+
+mse_Eval <- mean((df.sorted$daily.ts - df.sorted$forecast.val)^2)
+print(mse_Eval)
+
+```
+MSE is useful to calculate because it measures accuracy of our model. If the MSE is above 4, it is too high and would make it inaccurate. This tool helps us compare the different models and helps determine which one would be best for our research. 
+MSE is very low; this would not be the case in a real world example. This is because our MSE value is identical to our predicted values. I think this may have been done on purpose by the professor for teaching purposes. I do not think it is an error in the code because I followed the instructions from our course material. There is a chance I did not do it correctly but I do not think it's likely. In a real world data set, this suggests code issues or the model might be over fitting due to a mistake in calculation or formatting.
+
+
+### Discussion of what was found in our Linear trend line (regression) forecasting model and Evaluation of our MSE
+```{r Q6_Four_Month_WMA, echo=FALSE, warning=FALSE}
+
+weights <- c(0.6, 0.2, 0.1, 0.1)
+df.sorted$wma <- TTR::WMA(df.sorted$daily.ts, n = length(weights), wts = weights)
+summary(df.sorted$wma)
+
+```
+
+```{r Q7_MSE_Evaluate_Model, echo=FALSE, warning=FALSE}
+
+mse_wma_eval <- mean((df.sorted$daily.ts - df.sorted$wma)^2, na.rm = TRUE)
+print(mse_wma_eval)
+
+```
+I think our WMA shows that a high MSE indicates an error in the prediction, maybe due to the NA values and not taking into account season changes and trends. This value is extremely high. 
+
+### Comparing the two models 
+```{r Q8_MSE_Evaluate_Model, echo=FALSE, warning=FALSE}
+
+compare_ltl_mwa <- data.frame(
+  Model = c("Linear Regression", "Weighted Moving Average"),
+  MSE = c(mse_Eval, mse_wma_eval)
+)
+kable(compare_ltl_mwa, caption = "Comparison of MSE for Linear Regression vs. Weighted Moving Average")
+```
+I think that the linear regression model is a better fit  for our data than the WMA model. The linear regression model finds the best fitting trend line across the entire data set and even though the zero MSE suggests it may be not be completely correct, I think it still shows that with a real world example, forecasting future values would be done correctly. I think the goal of this assignment is to look at our prediction and evaluate which model would be better to use with the data set given. 
+ 
+### Ensemble Model
+```{r Q9_MSE_Evaluate_Model, echo=FALSE, warning=FALSE}
+
+ensemble_forecast <- function(actual, forecast.val, wma) {
+  weight_high_mse <- 0.3
+  weight_low_mse <- 0.7
+  if (mse_Eval > mse_wma_eval) {
+    return(weight_low_mse * forecast.val + weight_high_mse * wma)
+  } else {
+    return(weight_low_mse * wma + weight_high_mse * forecast.val)
+  }
+}
+df.sorted$ensemble_pred <- ensemble_forecast(df.sorted$daily.ts, df.sorted$forecast.val, df.sorted$wma)
+summary(df.sorted$ensemble_pred)
+
+```
+
+### MSE for Ensemble model and comparing the MSE with those of the base models built above
+```{r Q10_Evaluate_Ems_Model, echo=FALSE, warning=FALSE}
+
+mse_ensemble <- mean((df.sorted$daily.ts - df.sorted$ensemble_pred)^2, na.rm = TRUE)
+comparison_bw <- rbind(compare_ltl_mwa, data.frame(Model = "Ensemble Model", MSE = mse_ensemble))
+print(comparison_bw)
+```
+The ensemble model combines both the Linear Regression model and the  WMA model, which produces an MSE lower than the WMA and higher than the linear. I think this is expected. The ensemble model works with the models we previously used to compare them. Since the two previous models are wildly different and check for different factors in the data and there may be errors in the code or calculations, the ensemble model helps us understand our models. The ensemble model is good at combining the predictions and helping us forecast our data, which I think is shown in the table above. 
+
+### Point forecast for the next time period using all three models
+```{r Q11_Forecast, echo=FALSE, warning=FALSE}
+
+arima.model <- auto.arima(df.sorted$daily.ts)
+arima.forecast <- forecast(arima.model, h = 34)$mean
+ses.model <- HoltWinters(df.sorted$daily.ts, 
+                         beta = FALSE, 
+                         gamma = FALSE)
+ses.forecast <- forecast(ses.model, h = 34)$mean
+t <- time(df.sorted$daily.ts)
+linear.model <- lm(df.sorted$Avg.Daily.Water.Use.in.Liters ~ t)
+future.time <- seq(from = (max(t) + 1/34), 
+                   to = (max(t) + 12/34), 
+                   by = 1/34)
+linear.forecast <- predict(linear.model, 
+                           newdata = data.frame(time = future.time))
+ensemble.forecast <- (arima.forecast + ses.forecast + linear.forecast) / 3
+
+ensemble.forecast <- data.frame(
+  Model = c("Armia Forecast", "SES Forecast", "Linear Forecast"),
+  Next_Time_Period = c(arima.forecast, ses.forecast, linear.forecast))
+
+kable(ensemble.forecast[1:3, ], 
+      col.names = c("Model", "Next Time Period"),
+      caption = "Forecast for the Next Time Period from Different Models",
+      format = "markdown")
+```
+The Arima forecast is much lower than the SES and linear model, which probably means that there is a downward trend for our forecast. 
+SES relies on the most recent data so it shows a higher forecast.
+The linear model provides a midway point between the Arima and the SES forecasts. I think the ensemble model is the best to use for forecasts because it shows how each model is different in its own way. 

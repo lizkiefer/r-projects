@@ -1,0 +1,190 @@
+---
+title: "Process Textual Data"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+subtitle: DA5020 / Assignment 05.1
+---
+
+```{r q2_Package_Install, echo=FALSE, warning=FALSE}
+# https://stackoverflow.com/questions/33969024/install-packages-fails-in-knitr-document-trying-to-use-cran-without-setting-a
+# https://stackoverflow.com/questions/74021898/hide-package-loading-message-when-i-render-r-markdown
+if (!require("dslabs", quietly = TRUE)) {
+   install.packages("dslabs", 
+                    repos = "http://cran.us.r-project.org", 
+                    quiet = TRUE)
+}
+```
+
+```{r q3_Inspecting_Data, echo=FALSE, warning=FALSE, eval=FALSE}
+# Looking over the data 
+head(reported_heights)
+summary(reported_heights)
+```
+
+```{r q4_Format_Table, echo=FALSE, warning=FALSE}
+if (!require("kableExtra", quietly = TRUE)) {
+   install.packages("kableExtra", 
+                    repos = "http://cran.us.r-project.org", 
+                    quiet = TRUE)
+}
+
+# Create a data frame with empty rows for each month and columns for the genders
+months <- c("January", "February", "March", "April", "May", "June", 
+            "July", "August", "September", "October", "November", "December")
+genders <- c("Male", "Female")
+df.months <- data.frame(month = months, male = 0, female = 0)
+
+
+for (i in 1:nrow(reported_heights)) {
+  # Take the month out of the reported_heights df, convert it to an integer to be able to process it 
+  months_str <- format(as.Date(reported_heights$time_stamp[i]), "%m")
+  months_idx <- as.integer(months_str)
+  #if/else statement checks for the gender, adds the measurement to the corresponding months
+  if (reported_heights$sex[i] == "Male"){
+    df.months$male[months_idx] <- df.months$male[months_idx] + 1
+  }
+  else{
+    df.months$female[months_idx] <- df.months$female[months_idx] + 1
+  }
+  
+}
+
+# Using kableExtra I made a pretty looking table
+library(kableExtra)
+library(knitr)
+df.months %>%
+  kbl(caption = "Number of Monthly Reported Heights by Gender") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
+
+```{r q5_Converting_Heights, echo=FALSE, warning=FALSE}
+feet_to_cm <- function(in_string) {
+  # Assumes a format like "5'2"
+  feet <- as.integer(substring(in_string, 1, 1))
+  inches <- as.numeric(gsub("[^0-9.]", "", substring(in_string, 3)))
+  if (is.na(inches)) {
+    inches <- 0
+  }
+  return (feet * 30.48) + (inches * 2.54)
+}
+
+reported_heights$height.cm <- NA
+for (i in 1:nrow(reported_heights)) {
+  # Substitute some basic info to make parsing easier
+  height_str <- tolower(reported_heights$height[i])
+  height_str <- sub(" cm", "", height_str)
+  height_str <- sub("cm", "", height_str)
+  
+  height_str <- sub("feet", "'", height_str)
+  height_str <- sub("ft", "'", height_str)
+  height_str <- sub("foot", "'", height_str)
+  height_str <- sub("\\*", "'", height_str)
+  height_str <- sub("\"", "", height_str)
+  
+  height_str <- sub("one", "1", height_str)
+  height_str <- sub("two", "2", height_str)
+  height_str <- sub("three", "3", height_str)
+  height_str <- sub("four", "4", height_str)
+  height_str <- sub("five", "5", height_str)
+  height_str <- sub("six", "6", height_str)
+  height_str <- sub("seven", "7", height_str)
+  height_str <- sub("eight", "8", height_str)
+  height_str <- sub("nine", "9", height_str)
+  
+  numeric_height <- as.numeric(height_str)
+  if (!is.na(numeric_height)) {
+    if (numeric_height < 2) {
+      # Height in meters
+      reported_heights$height.cm[i] <- numeric_height * 100
+    }
+    else if (numeric_height < 10) {
+      # Height in feet
+      reported_heights$height.cm[i] <- numeric_height * 30.48
+    }
+    else if (numeric_height < 100) {
+      # Height in inches
+      reported_heights$height.cm[i] <- numeric_height * 2.54
+    }
+    else if (numeric_height > 300) {
+      # Height in millimeters
+      reported_heights$height.cm[i] <- numeric_height / 10
+    }
+    else {
+      # Height in centimeters
+      reported_heights$height.cm[i] <- numeric_height
+    }
+  }
+  else if (grepl('\'', height_str)) {
+    # Height in feet and inches
+    reported_heights$height.cm[i] <- feet_to_cm(height_str)
+  }
+  else if (grepl(',', height_str) || grepl(' ', height_str)) {
+    # Height in format like "5,3"
+    # Process to make the format similar to before
+    height_str <- sub(",", ".", height_str)
+    height_str <- sub(" .", ".", height_str)
+    height_str <- sub(" ", ".", height_str)
+    
+    numeric_height <- as.numeric(height_str)
+    if (!is.na(numeric_height)) {
+      if (numeric_height < 3)
+      {
+        # Height in meters
+        reported_heights$height.cm[i] <- numeric_height * 100
+      }
+      else if (numeric_height > 10) {
+        # Height in millimeters
+        reported_heights$height.cm[i] <- numeric_height / 10
+      }
+      else {
+        # Height in feet and inches
+        reported_heights$height.cm[i] <- feet_to_cm(height_str)
+      }
+    }
+    else {
+      # Unable to parse height
+      reported_heights$height.cm[i] <- NA
+    }
+  }
+  else
+  {
+    # Unable to parse height
+    reported_heights$height.cm[i] <- NA
+  }
+}
+
+# One more loop to remove unreasonable heights
+for (i in 1:nrow(reported_heights)) {
+  if (!is.na(reported_heights$height.cm[i]) && reported_heights$height.cm[i] > 250) {
+    reported_heights$height.cm[i] <- NA
+  }
+}
+
+```
+
+```{r q6_Report, echo=FALSE, warning=FALSE, }
+# Accesses the data
+male_heights <- reported_heights[reported_heights$sex == "Male",]$height.cm
+female_heights <- reported_heights[reported_heights$sex == "Female",]$height.cm
+
+# Finds mean 
+mean_male <- round(mean(male_heights, na.rm = TRUE), 1)
+mean_female <- round(mean(female_heights, na.rm = TRUE), 1)
+
+# t.test
+t_test <- t.test(male_heights, female_heights, alternative = "two.sided", var.equal = TRUE)
+p_val <- t_test$p.value
+
+# t.test evaluation
+pval_stats <- if (p_val >= 0.04){
+  significance <- paste("not significant (t = ", round(t_test$statistic, 1), ", p = ", t_test$p.value, ")", sep = "")
+} else {
+  significance <- "significant (p < 0.05)"
+  }
+```
+
+The mean height for females is `r mean_female` cm while for males it is `r mean_male` cm. The difference in means is statistically `r significance`.

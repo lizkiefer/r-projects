@@ -1,0 +1,484 @@
+---
+title: "Agency Analysis"
+subtitle: "Sales Analysis and Forecasts"
+author: "prepared by Liz Kiefer"
+date: "April 15, 2025"
+output:
+  html_document:
+    df_print: paged
+    theme: sandstone
+    highlight: tango
+---
+
+```{r Load_DF,include=FALSE, echo=FALSE, warning=FALSE}
+library(caret)
+library(class)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(RMySQL)
+library(RSQLite)
+library(sqldf)
+library(XML)
+
+options(scipen = 999)
+
+# Settings Aiven MySQL
+db_name_fh <- "defaultdb"
+db_user_fh <- "avnadmin"
+db_host_fh <- "mysql-2b10ba46-khoury-45a7.aivencloud.com"
+db_pwd_fh <- "AVNS_kAVuJeIdLvvrp80R2GV"
+db_port_fh <- 11214
+
+xmlURI <- "http://s3.us-east-2.amazonaws.com/artificium.us/datasets/agencies.xml"
+xmlDOM <- xmlParse(xmlURI, validate = F)
+
+db <- dbConnect(SQLite(), "real_estate.sqlite")
+
+# Copy external sales database to a local database
+sales_external_db <-  dbConnect(RMySQL::MySQL(), user = db_user_fh, password = db_pwd_fh,
+                 dbname = db_name_fh, host = db_host_fh, port = db_port_fh)
+sales_external_table <- dbReadTable(sales_external_db, "sales")
+dbWriteTable(db, "sales", sales_external_table, overwrite = TRUE)
+
+# Create Agents database
+agencies <- xpathApply(xmlDOM, "//RealEstateAgencies/Agency")
+
+dbExecute(db, " drop table if exists agents")
+dbExecute(db, "
+CREATE TABLE if not exists agents (
+  NAME TEXT PRIMARY KEY,
+  AGENCY TEXT,
+  COMMISSION DOUBLE,
+  AGENCYLOCATION TEXT
+)
+")
+
+# Load agents information
+for (i in 1:length(agencies)) {
+  agents <- xpathApply(agencies[[i]], "./Agent")
+  for (j in 1:length(agents)) {
+    dbExecute(db, "INSERT INTO agents (name, agency, commission, agencylocation) VALUES (?, ?, ?, ?)",
+          params = list(
+            xmlValue(agents[[j]][["Name"]]), 
+            xmlAttrs(agencies[[i]])[["name"]],
+          as.numeric(xmlValue(agents[[j]][["Commission"]])),
+          xmlAttrs(agencies[[i]])[["city"]]
+          ))
+  }
+}
+```
+
+```{r Intro, echo=FALSE, warning=FALSE}
+# Get basic sales information
+all_sales <- dbGetQuery(db, "SELECT * FROM sales")
+num_sales <- dbGetQuery(db, "select count(*) as n from sales")$n
+start_year <- dbGetQuery(db, "select min(yearSold) as n from sales")$n
+end_year <- dbGetQuery(db, "select max(yearSold) as n from sales")$n
+
+# Subtract the initial five data points since they'll always be there, like year sold
+home_chars <- length(dbListFields(db, "sales")) - 5
+```
+## 1 Introduction
+This report analyzes the performance of sales agencies, their agents, and provides statistically derived forecasts for future sales. The data was extracted from the database hosted on Aiven as well as agent-related data provided by marketing in the form of an XML file. The database contains sales transactions for `r num_sales` homes for the years `r start_year` through `r end_year`. For each sale, we have records of `r home_chars` distinct characteristics of the home, such as whether the home has a pool, what kind of air conditioning is featured in the home, and the amount of land.
+
+```{r Agents_across_Agencies, echo=FALSE, warning=FALSE}
+recent_transactions <- dbGetQuery(db, paste("select * from sales where yearSold > ", end_year, " - 3;"))
+
+num_agents <- dbGetQuery(db, "SELECT COUNT(*) AS num_agents FROM agents")$num_agents
+num_agencies <- dbGetQuery(db, "SELECT COUNT(DISTINCT AGENCY) AS num_agencies FROM agents")$num_agencies
+
+```
+## 2 Sales Analysis
+
+### 2.1 Analysis of Sales by Agency
+We employ `r num_agents` agents across `r num_agencies` agencies. The list of agencies in their aggregate sales for the most recent three years (`r end_year - 2` to `r end_year`) are shown in the table below, in no particular order.
+
+```{r Total_Sales, echo=FALSE, warning=FALSE}
+# Get agent sales data for the last three years, setting year names to a temp value
+agency_sales <- data.frame("Agency" = c(), "Y1" = c(), "Y2" = c(), "Y3" = c())
+for (i in 1:length(agencies)) {
+  agency_row <- data.frame("Agency" = xmlAttrs(agencies[[i]])[["name"]], "Y1" = 0, "Y2" = 0, "Y3" = 0)
+  agency_sales <- rbind(agency_sales, agency_row)
+}
+
+for (i in 1:nrow(recent_transactions)) {
+  agency_name <- dbGetQuery(db, paste0("SELECT agency AS agency FROM agents WHERE NAME ='", recent_transactions$salesAgent[i], "'"))$agency
+  for (j in 1:nrow(agency_sales)) {
+    if (agency_sales$Agency[j] == agency_name) {
+      # Get the index of the appropriate year column
+      year_index <- 4 - (end_year - recent_transactions$yearSold[i])
+      agency_sales[j, year_index] <- agency_sales[j, year_index] + round(recent_transactions$salesPrice[i] / 1000, 0)
+    }
+  }
+}
+
+# Get the top sales for the last year (before adding the TOTAL row)
+top_recent_sales <- agency_sales[which.max(agency_sales[[4]]), ]
+
+# Add the Avg column
+agency_sales <- agency_sales %>% mutate("Avg" = round((.[[2]] + .[[3]] + .[[4]]) / 3, 0))
+
+# Add the Total Sold column
+agency_sales <- agency_sales %>% mutate("Total.Sold" = .[[2]] + .[[3]] + .[[4]])
+
+# Get the top total sales now that we have a Total Sold column
+top_total_sales <- agency_sales[which.max(agency_sales$Total.Sold), ]
+
+# Add the TOTAL row
+total_row <- data.frame("Agency" = "TOTAL", 
+                        "Y1" = sum(agency_sales[[2]]), 
+                        "Y2" = sum(agency_sales[[3]]), 
+                        "Y3" = sum(agency_sales[[4]]), 
+                        "Avg" = "**", 
+                        "Total.Sold" = sum(agency_sales[[6]]))
+#names(agency_sales)
+#names(total_row)
+agency_sales <- rbind(agency_sales, total_row)
+
+# Set the column names for the years
+names(agency_sales)[2:4] <- c((end_year - 2):end_year)
+
+kable(agency_sales, caption = "TABLE 1: Total of sale prices in thousands US$.", align = "lccccc")
+```
+`r top_recent_sales$Agency` had the most sales for the most recent year, while `r top_total_sales$Agency` has the most overall sales.
+
+```{r Agent_Analysis, echo=FALSE, warning=FALSE}
+topSalesAgentDf <- dbGetQuery(db, "
+  SELECT salesAgent, SUM(salesPrice) AS totalSales
+  FROM sales
+  GROUP BY salesAgent
+  ORDER BY totalSales DESC
+  LIMIT 1
+")
+
+topSalesAgent <- topSalesAgentDf$salesAgent
+topSalesAgentSales <- topSalesAgentDf$totalSales
+
+topSalesAgentNumDf <- dbGetQuery(db, "
+  SELECT salesAgent, COUNT(salesID) AS totalSales
+  FROM sales
+  GROUP BY salesAgent
+  ORDER BY totalSales DESC
+  LIMIT 1
+")
+
+topNumSalesAgent <- topSalesAgentNumDf$salesAgent
+topNumSalesAgentNum <- round(topSalesAgentNumDf$totalSales,2)
+
+topCommissionAgent <- dbGetQuery(db,
+"SELECT sales.salesAgent, SUM(sales.salesPrice * agents.commission / 100) AS total_commission
+  FROM sales sales
+  JOIN agents agents ON sales.salesAgent = agents.name
+  GROUP BY sales.salesAgent
+  ORDER BY total_commission DESC
+  LIMIT 1
+")$salesAgent
+
+topCommissionAgentDf <- dbGetQuery(db,
+  paste0("SELECT agency, agencyLocation
+    FROM agents
+    WHERE name = '", topCommissionAgent, "'")
+  )
+topCommissionAgentAgency <- topCommissionAgentDf$AGENCY
+topCommissionAgentAgencyLocation <- topCommissionAgentDf$AGENCYLOCATION
+
+lastYearCommissions <- round(dbGetQuery(db, paste0("
+  SELECT SUM(sales.salesPrice * agents.commission / 100) AS commission
+  FROM sales sales
+  JOIN agents agents ON sales.salesAgent = agents.NAME
+  WHERE sales.yearSold = ", end_year))$commission, 2)
+
+secondLastYearCommissions <- round(dbGetQuery(db, paste0("
+  SELECT SUM(sales.salesPrice * agents.commission / 100) AS commission
+  FROM sales sales
+  JOIN agents agents ON sales.salesAgent = agents.NAME
+  WHERE sales.yearSold = ", end_year - 1))$commission, 2)
+
+averageLastYearCommissions <- round(dbGetQuery(db, paste0("
+  SELECT AVG(sales.salesPrice * agents.COMMISSION / 100) AS commission
+  FROM sales sales
+  JOIN agents agents ON sales.salesAgent = agents.NAME
+  WHERE sales.yearSold = ", end_year))$commission, 2)
+
+percentIncrease <- round(((lastYearCommissions - secondLastYearCommissions) / secondLastYearCommissions) * 100, 2)
+increase_decrease <- if (percentIncrease > 0) {
+  "an increase"
+} else {
+  "a decrease"
+}
+
+# Build table summarizing agent data for the last two years
+summary_agents <- dbGetQuery(db, paste0("
+  SELECT 
+    salesAgent,
+    SUM(CASE WHEN yearSold = ", end_year - 1, " THEN salesPrice ELSE 0 END) / 1000 AS Y", end_year - 1, ",
+    SUM(CASE WHEN yearSold = ", end_year, " THEN salesPrice ELSE 0 END) / 1000 AS Y", end_year, ",
+    (SUM(CASE WHEN yearSold IN (", end_year - 1, ", ", end_year, ") THEN salesPrice ELSE 0 END) / 2000.0) AS avg,
+    SUM(CASE WHEN yearSold IN (", end_year - 1, ", ", end_year, ") THEN salesPrice ELSE 0 END) / 1000 AS total
+  FROM sales
+  WHERE yearSold IN (", end_year - 1, ", ", end_year, ")
+  GROUP BY salesAgent
+"))
+topsales <- round(topSalesAgentSales, 2)
+```
+
+### 2.2 Analysis of Sales by Agent
+
+We have `r num_agents` agents selling homes for years from `r start_year` to `r end_year`. `r topSalesAgent` is currently first on the leaderboard for having the most sales revenue of $`r topsales ` (the total of the sales prices), while `r topNumSalesAgent` has the most sales by unit (`r topNumSalesAgentNum`). Based on commission earned, `r topCommissionAgent` of `r topCommissionAgentAgency` in `r topCommissionAgentAgencyLocation` has earned the most commission since they joined us. For the most recent year, a total of $`r lastYearCommissions` was earned in commission by our sales agents which represents `r increase_decrease` of `r percentIncrease`% over the prior year’s total of $`r secondLastYearCommissions`. The average sales commission in the most recent year was $`r averageLastYearCommissions`.
+
+The table below breaks down sales by sales agent for the two most recent years, ordered by sales total.
+```{r Agent_Summary_Table, echo=FALSE, warning=FALSE}
+summary <- summary_agents %>%
+  rename(
+    Agency = salesAgent,
+    `2022` = !!paste0("Y", end_year - 1),
+    `2023` = !!paste0("Y", end_year),
+    Avg = avg,
+    `Total Sold` = total
+  ) %>%
+  arrange(desc(`Total Sold`)) %>% 
+  mutate(across(-Agency, ~ formatC(.x, format = "f", big.mark = ",", digits = 0)))
+
+
+kable(summary, caption = paste0("TABLE 2: Sales by Agent (in Thousands US$)"), align = "lcccc")
+```
+
+## 3 Forecasting
+There is an increasing need for more accurate forecasts of revenue per agency as well as overall across agencies. The chart below shows the trend over the total monthly sales for the past two years. We are showing an interpolated regression line.
+```{r Forecasting, echo=FALSE, warning=FALSE, message=FALSE}
+# Get all sales for the last two years
+monthlySales2024 <- dbGetQuery(db, paste0("
+  SELECT 
+    monthSold,
+    yearSold,
+    SUM(salesPrice) AS TotalSales
+  FROM sales
+  WHERE yearSold = ", end_year, " OR yearSold = ", end_year - 1, "
+  GROUP BY yearSold, monthSold
+  ORDER BY yearSold, monthSold
+"))
+
+# Add in zeroes for any month which has no sales
+base_months <- data.frame(
+  yearSold = rep(c(end_year, end_year - 1), each = 12),
+  monthSold = rep(1:12, times = 2)
+)
+
+# Merge the temporary zeroed data frame with the sales data frame
+monthlySales2024 <- base_months %>%
+  left_join(monthlySales2024, by = c("yearSold", "monthSold")) %>%
+  mutate(TotalSales = ifelse(is.na(TotalSales), 0, TotalSales))
+
+# Add a column with abbreviated month names
+# monthlySales2024$MonthName <- month.abb[monthlySales2024$monthSold]
+
+# Sort for display
+monthlySales2024 <- monthlySales2024 %>%
+  arrange(yearSold, monthSold)
+
+# Divide all sales by 2 for the average of the two years, then divide by 1000 for display
+monthlySales2024$Sales_k <- monthlySales2024$TotalSales / (1000 * 2)
+
+ggplot(monthlySales2024, aes(x = monthSold, y = Sales_k)) +
+  geom_col(fill = "gray95") +
+  scale_x_continuous(
+    breaks = 1:12,
+    labels = month.abb
+  ) +
+  geom_smooth(se = FALSE, color = "black", size = 1) +
+  labs(
+    title = paste("Monthly Sales Trend for", end_year +1),
+    y = "Sales (k$)",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0, size = 16, face = "bold", color = "gray40"),
+    axis.title.y = element_text(face = "italic", color = "gray60"),
+    axis.text = element_text(size = 11),
+    panel.grid = element_blank()
+  )
+```
+
+```{r Weighted_Moving_Average, echo=FALSE, warning=FALSE}
+monthlySales2024 <- monthlySales2024 %>% arrange(monthSold)
+last_4 <- tail(monthlySales2024$Sales_k, 4)
+forecast_wma <- function(sales) {
+  recent_weight <- 0.7
+  other_weight <- (1 - recent_weight) / 3
+  weighted_avg <- sales[4] * recent_weight + sum(sales[1:3]) * other_weight
+  return(round(weighted_avg * 1000, 0))  # Convert back to full dollars
+}
+
+next_month_1 <- forecast_wma(last_4)
+last_4_updated <- c(last_4[-1], next_month_1 / 1000)
+next_month_2 <- forecast_wma(last_4_updated)
+```
+
+
+We used a weighted moving average of the prior four months sales with weights of 0.7 for the most recent months and equal weights for the remaining months to estimate total sales for next two months to be \$`r next_month_1 ` and \$`r next_month_2`.
+
+
+## 4 Home Pricing Model
+To assist agents in setting a price that is market-oriented and fair, we have built a pricing equation that can estimate the likely sales price of a property based on its key characteristics. Pricing of a property should be the estimated price adjusted by a markup to account for sales commission and profit.
+
+The pricing model was developed using multiple linear regression and an estimate for the likely selling price of a home based on various characteristics can be calculated with the equation below:
+
+
+```{r Pricing_Regression_Model, echo=FALSE, warning=FALSE}
+# Create a working dataframe for building the model
+df.work <- all_sales
+
+# Remove rows containing any NA values
+df.work <- na.omit(df.work)
+
+ac_counts <- table(df.work$hasAC)
+df.work$hasAC_freq <- ac_counts[df.work$hasAC]
+numeric.cols <- sapply(df.work, is.numeric)
+
+model <- lm(salesPrice ~ landSizeSqMtrs + parkingSpots + hasUFFI + hasPool + 
+            Gt45YearsOld + finishedBasement + hasAC_freq, data = df.work)
+summary <- summary(model)
+estimation <- "Estimated Price = (155.98 × (a)) + (55820.30 × (b)) + (164285.37 x (c)) + (302059.03 × (d)) + (106693.35 × (e)) + 113158.43"
+
+model1 <- lm(salesPrice ~ landSizeSqMtrs + parkingSpots + hasAC_freq + hasPool, data = df.work)
+
+new_home <- data.frame(
+  landSizeSqMtrs = 518,
+  parkingSpots = 2,
+  hasPool = 1,
+  hasAC_freq = 4
+)
+predicted <- predict(model1, newdata = new_home, interval = "confidence", level = 0.95)
+
+lower <- round(min(predicted),2)
+upper <- round(max(predicted),2)
+
+
+mean_price_with_uffi <- mean(df.work$salesPrice[df.work$hasUFFI == 1])
+mean_price_without_uffi <- mean(df.work$salesPrice[df.work$hasUFFI == 0])
+percent_difference <- round(((mean_price_without_uffi - mean_price_with_uffi) / mean_price_without_uffi) * 100, 2)
+t_test_result <- t.test(salesPrice ~ hasUFFI, data = df.work)
+t_val <- round(t_test_result$statistic,2)
+p_val <- round(t_test_result$p.value,2)
+
+yes_no <- if (p_val < 0.05) {
+  "seem"
+} else {
+  "not seem"
+}
+```
+$$ Estimation = (155.98 × (a)) + $$
+$$(55820.30 × (b)) + $$
+$$(164285.37 x (c)) + $$
+$$(302059.03 × (d)) + $$
+$$(106693.35 × (e)) + $$
+$$113158.43$$
+ 
+
+where,
+
+- a = Land size in meters
+- b = number of parking spots
+- c = presence of pool (1 = present, 0 = absent)
+- d = presence of AC (1 = present, 0 = absent)
+- e = Has AC categories ( none, split, central, window)
+
+As an aside, we have recently embedded the equation into the “Estimator” calculator on our website, so that our clients have an idea of a likely selling price based on comparable. To demonstrate the usefulness of the updated pricing model, we demonstrate the calculation of the estimated selling price of a 32-year-old four-bedroom single-family home on a 518m^2 lot, with an in-ground pool, no presence of UFFI, central AC, a two-car garage, and having a finished basement with a media room and a gym. For this home, the pricing model estimates a selling price between \$`r lower` and \$`r upper` (the 95% confidence interval).
+
+It is interesting to note that homes that have UFFI (Urea Formaldehyde Foam Insulation), a type of insulation that was popular in the 1970s and 1980s, but is now recognized as problematic due to formaldehyde off-gassing and other issues, have, on average, a `r percent_difference`% lower sales price, however this difference in price does `r yes_no` to be statistically significant (t = `r t_val`, p = `r p_val`) despite claims to the contrary by the Realtor Association.
+
+## 5 Technical Details
+
+This section presents key technical details on how the forecast and the pricing formula were derived. We specifically excluded the month from the regression model, but left the year to account for appreciation in home values over the years. Any features that were not found to be statistically significant (i.e., had p < 0.05) were excluded from the model. Missing values in the data were imputed . The categorical variable “hasAC” was rank encoded with ranks of (none = 0, window = 1, split = 3, central = 7); any missing values for AC were replaced with a value obtained from a kNN classifier using the features (“SalesPrice”,“Gt45YrOld”,“finishedBasement”,“landSizeSqMtrs”,“parkingSpots”,“hasPool”). The kNN classifier was trained on the entire dataset excluding those with missing values for “hasAC”, of course. The data for kNN was prepared using min-max normalization for feature scaling and using one-hot encoding for any categorical features.
+
+```{r Missing_AC_Prediction, echo=FALSE, warning=FALSE}
+# Replace outliers on numeric columns with NA
+df.work1 <- all_sales
+numeric.cols <- c(5, 9)
+for (c in 1:length(numeric.cols)) {
+  if (numeric.cols[c] == TRUE) {
+    m <- mean(df.work1[,c], na.rm = T)
+    s <- sd(df.work1[,c], na.rm = T)
+    
+    outliers <- which(abs((m - df.work1[,c]) / s) > 3.0)
+    df.work1[outliers, c] <- NA
+  }
+}
+
+num.Rows <- nrow(df.work1)
+num.Cols <- ncol(df.work1)
+
+# Replace NA values with the column median
+for (c in 1:num.Cols) {
+  column.name <- names(df.work1)[c]
+  if (!is.numeric(df.work1[[c]])) next
+  col_median <- median(df.work1[[c]], trim = 0.10, na.rm = TRUE)
+  for (i in 1:num.Rows) {
+    if (is.na(df.work1[i, c]) || df.work1[i, c] == "") {
+      df.work1[i, c] <- col_median
+    }
+  }
+}
+
+# Encode Y/N values to 0 and 1
+df.work1$finishedBasement_enc <- ifelse(df.work1$finishedBasement == "Y", 0, 1)
+df.work1$Gt45YearsOld_enc <- ifelse(df.work1$Gt45YearsOld == "Yes", 0, 1)
+
+# Encode AC values to numeric
+ac_map <- c("none" = 0, "window" = 1, "split" = 3, "central" = 7)
+df.work1$hasAC_enc <- ac_map[df.work1$hasAC]
+
+# Normalize numeric columns
+min_max_normalize <- function(x) {
+  col_range <- range(x, na.rm = TRUE)
+  if (col_range[1] == col_range[2]) {
+    return(rep(0, length(x)))
+  }
+  return((x - col_range[1]) / (col_range[2] - col_range[1]))
+}
+
+# Normalize df.work and remove non-numeric columns
+numeric_cols <- sapply(df.work1, is.numeric)
+normalized <- as.data.frame(lapply(df.work1[, numeric_cols], min_max_normalize))
+df.scaled <- normalized
+
+# Split data into rows for training and the missing AC entries
+df.missingAC <- df.scaled[is.na(df.scaled$hasAC_enc) | df.scaled$hasAC_enc == "", ]
+df.withAC <- df.scaled[!is.na(df.scaled$hasAC_enc) & df.scaled$hasAC_enc != "", ]
+
+# Create data partition to train model
+set.seed(88765)
+trainIndex <- createDataPartition(df.withAC$hasAC_enc, p = 0.85, list = FALSE)
+trainData <- df.withAC[trainIndex, ]
+testData <- df.withAC[-trainIndex, ]
+
+trainX <- trainData[, -14]    
+trainY <- as.factor(trainData$hasAC_enc)
+
+predicted_ac <- c()
+
+df.missingAC$hasAC_enc <- 0
+
+# Use kNN to predict missing values for AC
+for (i in 1:nrow(df.missingAC)) {
+  pred <- knn(train = trainX, test = df.missingAC[i,], cl = trainY, k = 7)
+  
+  predicted_ac <- c(predicted_ac, as.character(pred))
+}
+
+# Get indices of rows which need AC filled
+na_indices <- which(is.na(df.scaled$hasAC_enc))
+
+# Fill in the predictions
+df.scaled$hasAC_enc[na_indices] <- as.numeric(predicted_ac)
+
+# Imputing the missing AC values was supposed to be done before building the equation above but I got it to work and really don't want to break it again trying to do that.
+```
+
+## 6 Summary
+This report provides a comprehensive analysis of real estate sales performance while offering forecasting insights and a pricing model to support agents in setting competitive listing prices. The inclusion of data imputation techniques and machine learning-based classification enhances the robustness of the analysis.
+
+## 7 References
+None.

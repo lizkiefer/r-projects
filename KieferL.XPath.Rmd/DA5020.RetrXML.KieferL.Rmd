@@ -1,0 +1,87 @@
+---
+title: "DA5020 Load XML"
+author: "Liz Kiefer"
+date: "Spring 2025"
+output:
+  html_document:
+    df_print: paged
+---
+```{r q4_Dataframe_Creation, echo=FALSE, warning=FALSE}
+library(XML)
+library(RCurl)
+
+xmlURL <-"http://s3.us-east-2.amazonaws.com/artificium.us/datasets/Books7.xml"
+xmlObjTree <- xmlTreeParse(xmlURL, useInternalNodes = TRUE, validate=F)
+```
+
+### Question 4
+Who is the author of the book with the title "Paradox Lost and Found"? 
+```{r q4_Author_book, echo=FALSE, warning=FALSE}
+xpathEx <- "//books/book[title='Paradox Lost and Found']/author"
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+
+```
+`r result`
+
+### Question 5
+What are the titles of the books written by "Corben, Ellen"?
+```{r q5_Titles, echo=FALSE, warning=FALSE}
+xpathEx <- "//books/book[author='Corben, Ellen']/title"
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+```
+`r result`
+
+### Question 6
+How many books are in their second or higher edition?
+```{r q6_Editions, echo=FALSE, warning=FALSE}
+xpathEx <- "count(//books/book[edition >= 2 ]/title)"
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+```
+`r result`
+
+### Question 7
+What are the titles of the books that sell for the lowest price?
+```{r q7_Prices, echo=FALSE, warning=FALSE}
+xpathEx <- paste("//books/book[price=min(//books/book/price)]/title")
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+```
+
+`r result`
+
+### Question 8
+List the title and prices of all books in the "Romance" or "Science Fiction" genres.
+```{r q8_Romance_Books, echo=FALSE, warning=FALSE}
+xpathEx <- "//books/book[genre='Romance' or genre='Science Fiction']"
+titles <- xpathSApply(xmlObjTree, paste0(xpathEx, "/title"), xmlValue)
+prices <- xpathSApply(xmlObjTree, paste0(xpathEx, "/price"), xmlValue)
+result <- paste(titles, prices, sep = ": ")
+```
+`r result`
+
+### Question 9
+What is the number of all books that cost $80.00 or more?
+```{r q9_CostNumbers, echo=FALSE, warning=FALSE}
+xpathEx <- "count(//books/book[price >= 80.00 ])"
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+```
+`r result`
+
+### Question 10
+Use a combination of XPath and R to find the titles and authors of all books or magazines that have "Garden" in their description.
+```{r q10_Description, echo=FALSE, warning=FALSE}
+xpathEx <- "(//books/book[contains(description, 'Garden')] | //magazines/magazine[contains(description, 'Garden')])"
+titles <- xpathSApply(xmlObjTree, paste0(xpathEx, "/title"), xmlValue)
+authors <- xpathSApply(xmlObjTree, paste0(xpathEx, "/author"), xmlValue)
+result <- paste(titles, authors, sep = ": ")
+
+```
+`r result`
+
+### Question 11
+Use a combination of XPath and R to find the median price of all magazines published in 2023.
+```{r q11_Median_Price_Magazines, echo=FALSE, warning=FALSE}
+xpathEx <- "//magazines/magazine[year='2023']/price"
+result <- xpathSApply(xmlObjTree, xpathEx, xmlValue)
+median_Price <- median(result)
+```
+`r median_Price`

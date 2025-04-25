@@ -1,0 +1,168 @@
+---
+title: "DA5020 Descriptive Analytics"
+author: "Kiefer,  Liz"
+date: "Spring 2025"
+output:
+  html_document: 
+    df_print: paged
+  extra_dependencies: ['amsmath', 'someotherpackage']
+---
+
+
+```{r q2_LoadCSV,echo=FALSE, warning=FALSE}
+df.wines <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/whitewines.csv", stringsAsFactors = FALSE, header = T)
+
+```
+
+## Analysis of the Structure of the Data
+```{r q3_TableAnalysisData,echo=FALSE, warning=FALSE}
+
+#A
+residualsugar_Median <- median(df.wines$residual.sugar)
+alcohol_Median <- median(df.wines$alcohol)
+sulphates_Median <- median(df.wines$sulphates)
+quality_Median <- median(df.wines$quality)
+
+#B
+residualsugar.m_Trimmed <- mean(df.wines$residual.sugar, trim = 0.1)
+alcohol.m_Trimmed <- mean(df.wines$alcohol, trim = 0.1)
+sulphates.m_Trimmed <- mean(df.wines$sulphates, trim = 0.1)
+quality.m_Trimmed <- mean(df.wines$quality, trim = 0.1)
+
+#C
+residualsugar.std_Dev <- sd(df.wines$residual.sugar)
+alcohol.std_Dev <- sd(df.wines$alcohol)
+sulphates.std_Dev <- sd(df.wines$sulphates)
+quality.std_Dev <- sd(df.wines$quality)
+
+#D
+residualsugar_Normality <- shapiro.test(df.wines$residual.sugar)
+residualsugarnorm_Yesno <- if (residualsugar_Normality$p.value > 0.05) {
+  "Yes"
+} else {
+  "No"
+}
+
+alcohol_Normality <- shapiro.test(df.wines$alcohol)
+alcoholnorm_Yesno<-if (alcohol_Normality$p.value > 0.05) {
+ "Yes"
+} else {
+ "No"
+}
+sulphates_Normality <- shapiro.test(df.wines$sulphates)
+sulphatesnorm_Yesno <- if (sulphates_Normality$p.value > 0.05) {
+  "Yes"
+} else {
+  "No"
+}
+quality_Normality <- shapiro.test(df.wines$quality)
+qualitynorm_Yesno <- if (quality_Normality$p.value > 0.05) {
+  "Yes"
+} else {
+  "No"
+}
+
+
+column_Names  <- c("Residual Sugars", "Alcohol", "Sulphates", "Quality")
+median.df  <- c(residualsugar_Median, alcohol_Median, sulphates_Median, quality_Median)
+mean.df <- c(residualsugar.m_Trimmed, alcohol.m_Trimmed, sulphates.m_Trimmed, quality.m_Trimmed)
+sd.df <- c(residualsugar.std_Dev, alcohol.std_Dev, sulphates.std_Dev, quality.std_Dev)
+residualsugar_Normality.df <- c(residualsugarnorm_Yesno, alcoholnorm_Yesno, sulphatesnorm_Yesno, qualitynorm_Yesno)
+
+data.frame(Names = column_Names, Median = median.df, Mean = mean.df, StdDeviation = sd.df, Normality = residualsugar_Normality.df )
+
+```
+
+## Correlation Analysis
+```{r q4_CorrelationMatrix,echo=FALSE, warning=FALSE}
+wine_Analysis <- data.frame(Names = column_Names, Median = median.df, Mean = mean.df, StdDeviation = sd.df, Normality = residualsugar_Normality.df )
+
+cor(df.wines[,c("residual.sugar","sulphates","alcohol", "quality")], method="spearman")
+
+```
+
+```{r q5_CorrelationBwQualityandDerievedfeatures,echo=FALSE, warning=FALSE}
+correlationdf<- (100*df.wines$alcohol) / (df.wines$alcohol * sqrt(df.wines$alcohol))
+correlation_Quality <- cor(df.wines$quality, correlationdf )
+
+posorneg <- if (correlation_Quality >=0) {
+  "positive"
+} else {
+  "negative"
+}
+```
+
+
+*We define the "swill-coefficient" by the formula below and found that there is a `r posorneg` correlation between "swill-coefficient" and "quality" (Pearson-Moment coefficient of `r correlation_Quality`.*
+$$\frac{100a} {s\times \sqrt{h}}$$
+
+```{r q6_scatterplot,echo=FALSE, warning=FALSE}
+plot(x = df.wines$residual.sugar, 
+     y = df.wines$quality, 
+     main = "Correlation Between Aggregate Sugars and Quality", 
+     xlab = "Residual Sugars", 
+     ylab = "Quality",
+     type = 'p')
+
+
+
+```
+
+## Analysis of Sugar Content
+```{r q7_AnalysisofSugarContent,echo=FALSE, warning=FALSE}
+
+sugarcontent_Below10 <- mean(df.wines$residual.sugar[df.wines$alcohol < 10], na.rm = TRUE)
+sugarcontent_Above10 <- mean(df.wines$residual.sugar[df.wines$alcohol >= 10], na.rm = TRUE)
+
+difference_Mean <- sugarcontent_Above10 - sugarcontent_Below10
+
+ttest <- t.test(df.wines$residual.sugar[df.wines$alcohol >= 10], df.wines$residual.sugar[df.wines$alcohol < 10])
+pvalue <- ttest$p.value
+
+statement_Pvalue <- if (ttest$p.value > 0.05) {
+  "is greater than 0.05, indicating that the difference between the means of the two groups is not statistically significant."
+} else {
+  "is less than 0.05, indicating that the difference between the means of the two groups is statistically significant."
+}
+
+```
+
+
+
+*I chose a t-test because this type of test is used to compare means between two groups. This test assumes that the two groups are normally distributed which we saw on the table scatter plot above. It evaluates whether there is a statistically significant difference between the two groups. In this case, the test was applied to compare the sugar content of wines with alcohol content above 10% and below 10%. We found a p-value of `r pvalue` which `r statement_Pvalue`*
+
+
+
+## Identification of Outliers
+```{r q8_IdentificationofOutliers,echo=FALSE, warning=FALSE}
+#total sulfur
+mu_Totalsulfur <- mean(df.wines$total.sulfur.dioxide)
+sd_Totalsulfur <- sd(df.wines$total.sulfur.dioxide)
+zscore_Totalsulfur <- (df.wines$total.sulfur.dioxide - mu_Totalsulfur) / sd_Totalsulfur
+outliers_Totalsulfur <- which(abs(zscore_Totalsulfur) > 2.0)
+
+#chlorides
+mu_chlorides <- mean(df.wines$chlorides)
+sd_chlorides <- sd(df.wines$chlorides)
+zscore_chlorides <- (df.wines$chlorides - mu_chlorides) / sd_chlorides
+outliers_chlorides <- which(abs(zscore_chlorides) > 2.0)
+
+#density
+mu_density <- mean(df.wines$density)
+sd_density <- sd(df.wines$density)
+zscore_density <- (df.wines$density - mu_density) / sd_density
+outliers_density <- which(abs(zscore_density) > 2.0)
+
+
+outliers_Data <- data.frame(
+  "Sulfur" = length(outliers_Totalsulfur),
+  "Chloride" = length(outliers_chlorides),
+  "Density" = length(outliers_density)
+)
+library(knitr)
+kable(outliers_Data,
+  format = "html",
+  digits = getOption("digits"),
+  caption = ("Identification of Outliers"),
+)
+```
