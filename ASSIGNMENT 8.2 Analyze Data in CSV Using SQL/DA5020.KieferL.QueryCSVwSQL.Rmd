@@ -13,7 +13,7 @@ output:
 library(sqldf)
 library(RSQLite)
 
-df <- read.csv("https://s3.us-east-2.amazonaws.com/artificium.us/datasets/ConcreteStrengthData.csv")
+df <- read.csv("")
 
 ```
 
